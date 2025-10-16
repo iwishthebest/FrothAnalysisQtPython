@@ -1,18 +1,23 @@
-*.db
-./data/
-./.venv/
-./vscode/
+# 忽略虚拟环境
+.venv/
+env/
+
+# 忽略 IDE 配置文件
+.vscode/
+.idea/
+
+# 忽略 Python 编译文件
 __pycache__/
 *.pyc
 *.pyo
-*.pyd
-.Python
-env/
-build/
-develop-eggs/
-dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
+
+# 忽略日志和缓存文件
+*.log
+*.cache
+
+# 忽略数据文件（如我们的数据库文件）
+data_records.db
+*.db-journal  # SQLite 临时文件
+
+# 忽略个人配置（不共享给团队）
+personal_config.ini
