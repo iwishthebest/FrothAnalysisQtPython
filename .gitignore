@@ -16,8 +16,13 @@ __pycache__/
 *.cache
 
 # 忽略数据文件（如我们的数据库文件）
+data/**
 data/*.db
 data/*.db-journal  # SQLite 临时文件
 
 # 忽略个人配置（不共享给团队）
 personal_config.ini
+
+# 忽略临时文件和目录
+temp/
+test/
