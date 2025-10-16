@@ -8,42 +8,48 @@ from pathlib import Path
 
 # 基础配置
 base_url = "http://10.12.18.2:8081/open/realdata/snapshot/batchGet"
-db_file = Path("./data/data_records.db")
+db_file = Path("./data/data.db")
 db_name = str(db_file)
 # 表名避免使用特殊字符
-table_name = "sensor_data"  
+table_name = "sensor_data"
 tagList_file = Path("./src/tagList.csv")
 
 interval = 60  # 采集间隔（秒）
 
 
 def init_database():
-    """初始化数据库和数据表，确保表名和字段名安全"""
+    """初始化数据库和数据表，优化字段类型和约束"""
     try:
         conn = sqlite3.connect(db_name)
         cursor = conn.cursor()
-        
-        # 创建数据表，使用双引号包裹表名和字段名，防止特殊字符问题
+
+        # 优化字段类型和约束
         cursor.execute(f'''
         CREATE TABLE IF NOT EXISTS "{table_name}" (
             "id" INTEGER PRIMARY KEY AUTOINCREMENT,
-            "fetch_time" TEXT NOT NULL,
+            "fetch_time" DATETIME NOT NULL, 
             "tag_name" TEXT NOT NULL,
-            "value" TEXT,
-            "timestamp" TEXT,
-            "created_at" TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            "numeric_value" REAL,
+            "string_value" TEXT, 
+            "timestamp" DATETIME,
+            -- 唯一约束：同一时间同一标签的数据不重复
+            UNIQUE("fetch_time", "tag_name")
         )
         ''')
-        
-        # 创建索引时同样使用双引号
+
+        # 优化索引：适配常用查询场景
         cursor.execute(f'''
-        CREATE INDEX IF NOT EXISTS "idx_tag_time" 
+        CREATE INDEX IF NOT EXISTS "idx_tag_fetch_time" 
         ON "{table_name}" ("tag_name", "fetch_time")
         ''')
-        
+        cursor.execute(f'''
+        CREATE INDEX IF NOT EXISTS "idx_tag_timestamp" 
+        ON "{table_name}" ("tag_name", "timestamp")
+        ''')
+
         conn.commit()
         conn.close()
-        print("数据库初始化完成")
+        print("数据库初始化完成（优化后）")
     except Exception as e:
         print(f"数据库初始化失败: {e}")
 
@@ -60,7 +66,8 @@ def get_tag_list():
                     withprefix = add_prefix(cleaned_line.strip())
                     # 记录包含特殊字符的标签，便于排查
                     if '#' in withprefix or '"' in withprefix or "'" in withprefix:
-                        print(f"注意: 标签包含特殊字符 - 行号: {row_num}, 标签: {withprefix}")
+                        print(
+                            f"注意: 标签包含特殊字符 - 行号: {row_num}, 标签: {withprefix}")
                     tag_list.append(withprefix)
         print(f"已加载 {len(tag_list)} 个标签")
     except Exception as e:
@@ -95,52 +102,64 @@ def safe_escape(value):
 
 
 def fetch_and_save_data():
-    """获取数据并安全保存到数据库"""
+    """获取数据并按优化后的结构存储"""
     tag_list = get_tag_list()
     if not tag_list:
         print("没有可用标签，跳过本次采集")
         return False
 
-    current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    tag_param = ",".join(tag_list)
+    current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")  # fetch_time
+    processed_tags = [tag.replace('#', '%23') for tag in tag_list]
+    tag_param = ",".join(processed_tags)
 
     try:
-        # 发送请求获取数据
         params = {"tagNameList": tag_param}
         response = requests.get(url=base_url, params=params, timeout=10)
 
         if response.status_code == 200:
             data = response.json()
             records = []
-            
-            # 处理获取到的数据
             for item in data.get("data", []):
-                # 对可能包含特殊字符的字段进行处理
-                tag_name = safe_escape(item['TagName'])
-                value = safe_escape(item['Value'])
-                timestamp = safe_escape(format_time(item['Time']))
-                
+                tag_name = item['TagName'].strip()
+                value = item['Value']
+                raw_timestamp = format_time(item['Time'])
+
+                # 区分数值型和字符串型数据
+                numeric_val = None
+                string_val = None
+                try:
+                    # 尝试转换为数值（支持整数、浮点数）
+                    numeric_val = float(value) if '.' in str(
+                        value) else int(value)
+                except (ValueError, TypeError):
+                    # 转换失败则视为字符串
+                    string_val = str(value) if value is not None else None
+
+                # 时间字段格式化（确保符合DATETIME格式）
+                timestamp = raw_timestamp if raw_timestamp else None
+
                 records.append((
                     current_time,
                     tag_name,
-                    value,
+                    numeric_val,
+                    string_val,
                     timestamp
                 ))
 
-            # 使用参数化查询插入数据
             if records:
                 conn = sqlite3.connect(db_name)
                 cursor = conn.cursor()
-                # 表名使用双引号包裹，字段名也使用双引号
+                # 插入优化后的字段
                 insert_sql = f'''
-                INSERT INTO "{table_name}" ("fetch_time", "tag_name", "value", "timestamp")
-                VALUES (?, ?, ?, ?)
+                INSERT OR IGNORE INTO "{table_name}" 
+                ("fetch_time", "tag_name", "numeric_value", "string_value", "timestamp")
+                VALUES (?, ?, ?, ?, ?)
                 '''
-                # 批量插入
+                # INSERT OR IGNORE：遇到唯一约束冲突时跳过（避免重复插入）
                 cursor.executemany(insert_sql, records)
                 conn.commit()
                 conn.close()
-                print(f"{current_time} - 成功保存 {len(records)} 条数据到数据库")
+                print(f"{current_time} - 成功保存 {len(records)} 条数据（优化后）")
                 return True
             else:
                 print(f"{current_time} - 未获取到有效数据")
@@ -150,12 +169,6 @@ def fetch_and_save_data():
             print(f"{current_time} - 请求失败，状态码：{response.status_code}")
             return False
 
-    except sqlite3.OperationalError as e:
-        print(f"{current_time} - SQL操作错误: {e}")
-        # 打印导致错误的数据记录（前3条），便于排查
-        if records:
-            print(f"问题数据示例: {records[:3]}")
-        return False
     except Exception as e:
         print(f"{current_time} - 采集异常：{e}")
         return False
@@ -165,7 +178,7 @@ def main():
     init_database()
     print("开始连续数据采集...")
     count = 0
-    
+
     while True:
         fetch_and_save_data()
         count += 1
@@ -180,4 +193,3 @@ if __name__ == "__main__":
         print("\n程序已手动停止")
     except Exception as e:
         print(f"程序异常终止：{e}")
-    
