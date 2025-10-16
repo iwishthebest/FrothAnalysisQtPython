@@ -8,9 +8,12 @@ from pathlib import Path
 
 # 基础配置
 base_url = "http://10.12.18.2:8081/open/realdata/snapshot/batchGet"
-db_name = "./data/data_records.db"
+db_file = Path("./data/data_records.db")
+db_name = str(db_file)
 # 表名避免使用特殊字符
 table_name = "sensor_data"  
+tagList_file = Path("./src/tagList.csv")
+
 interval = 60  # 采集间隔（秒）
 
 
@@ -49,7 +52,7 @@ def get_tag_list():
     """从CSV文件获取标签列表，增加特殊字符日志"""
     tag_list = []
     try:
-        with open('.\src\my_YJ.csv', 'r', encoding='utf-8') as file:
+        with open(tagList_file, 'r', encoding='utf-8') as file:
             reader = csv.reader(file)
             for row_num, row in enumerate(reader, 1):
                 if row:  # 跳过空行
