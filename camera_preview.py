@@ -6,7 +6,7 @@ import os  # 用于处理文件目录
 rtsp_url = "rtsp://admin:fkqxk010@192.168.1.101:554/Streaming/Channels/101?tcp"
 
 # 抽帧参数设置
-save_interval = 60  # 抽帧时间间隔（秒）
+save_interval = 5  # 抽帧时间间隔（秒）
 base_save_dir = "./data/extracted_frames"  # 基础保存目录
 
 
@@ -22,8 +22,8 @@ def connect_camera(rtsp_url):
 last_save_time = 0  # 初始化为0，确保首次运行时会保存第一帧
 
 cap = connect_camera(rtsp_url)
-cv2.namedWindow('Hikvision Camera', cv2.WINDOW_NORMAL)
-cv2.resizeWindow('Hikvision Camera', 800, 600)
+# cv2.namedWindow('Hikvision Camera', cv2.WINDOW_NORMAL)
+# cv2.resizeWindow('Hikvision Camera', 800, 600)
 
 while True:
     ret, frame = cap.read()
@@ -62,9 +62,9 @@ while True:
         last_save_time = current_time
 
     # 显示视频流
-    cv2.imshow('Hikvision Camera', frame)
-    if cv2.waitKey(1) & 0xFF == ord('q'):
-        break
+    # cv2.imshow('Hikvision Camera', frame)
+    # if cv2.waitKey(1) & 0xFF == ord('q'):
+    #     break
 
 cap.release()
 cv2.destroyAllWindows()
