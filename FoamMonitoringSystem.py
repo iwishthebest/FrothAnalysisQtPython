@@ -2,79 +2,23 @@ import numpy as np
 from PySide6.QtWidgets import (QMainWindow, QWidget, QLabel, QPushButton,
                                QVBoxLayout, QHBoxLayout, QGridLayout,
                                QTabWidget, QGroupBox, QComboBox, QSpinBox,
-                               QDoubleSpinBox, QTableWidget, QStatusBar)
+                               QDoubleSpinBox, QTableWidget, QStatusBar, QTextEdit)
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QFont, QPixmap, QImage, QIcon
 import pyqtgraph as pg
 import cv2
 from datetime import datetime
-
-
-def capture_frame(camera_index):
-    """模拟视频帧捕获 - 根据相机索引生成不同的泡沫图像"""
-    try:
-        width, height = 640, 480
-        # 创建不同相机的基础图像
-        base_colors = [
-            (100, 150, 200),  # 蓝色调 - 铅快粗泡沫
-            (200, 200, 100),  # 黄色调 - 铅精一泡沫
-            (150, 100, 100),  # 红色调 - 铅精二泡沫
-            (100, 200, 150)  # 绿色调 - 铅精三泡沫
-        ]
-
-        # 创建基础图像
-        frame = np.full((height, width, 3), base_colors[camera_index], dtype=np.uint8)
-
-        # 添加一些随机噪声模拟真实图像
-        noise = np.random.randint(0, 30, (height, width, 3), dtype=np.uint8)
-        frame = cv2.add(frame, noise)
-
-        # 根据泡沫类型添加不同的模拟内容
-        if camera_index == 0:  # 铅快粗泡沫
-            cv2.putText(frame, "铅快粗泡沫", (50, 50),
-                        cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
-            # 添加大泡沫模拟
-            for _ in range(30):
-                x, y = np.random.randint(0, width), np.random.randint(0, height // 2)
-                radius = np.random.randint(15, 30)  # 较大的气泡
-                cv2.circle(frame, (x, y), radius, (255, 255, 255), -1)
-
-        elif camera_index == 1:  # 铅精一泡沫
-            cv2.putText(frame, "铅精一泡沫", (50, 50),
-                        cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
-            # 添加中等泡沫模拟
-            for _ in range(50):
-                x, y = np.random.randint(0, width), np.random.randint(0, height // 2)
-                radius = np.random.randint(8, 20)  # 中等气泡
-                cv2.circle(frame, (x, y), radius, (255, 255, 255), -1)
-
-        elif camera_index == 2:  # 铅精二泡沫
-            cv2.putText(frame, "铅精二泡沫", (50, 50),
-                        cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
-            # 添加小泡沫模拟
-            for _ in range(70):
-                x, y = np.random.randint(0, width), np.random.randint(0, height // 2)
-                radius = np.random.randint(5, 15)  # 较小的气泡
-                cv2.circle(frame, (x, y), radius, (255, 255, 255), -1)
-
-        elif camera_index == 3:  # 铅精三泡沫
-            cv2.putText(frame, "铅精三泡沫", (50, 50),
-                        cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
-            # 添加精细泡沫模拟
-            for _ in range(100):
-                x, y = np.random.randint(0, width), np.random.randint(0, height // 2)
-                radius = np.random.randint(3, 10)  # 精细气泡
-                cv2.circle(frame, (x, y), radius, (255, 255, 255), -1)
-
-        return True, frame
-    except Exception as e:
-        print(f"捕获相机 {camera_index} 视频帧时出错: {e}")
-        return False, None
+from utils.system_logger import SystemLogger
+from utils.capture_frame import capture_frame
 
 
 class FoamMonitoringSystem(QMainWindow):
     def __init__(self):
         super().__init__()
+        # 添加日志管理器
+        self.logger = SystemLogger()
+        self.log_text_edit = None
+
         # 视频监控相关变量
         self.video_labels = []  # 存储四个相机预览标签
         self.video_timer = None
@@ -156,6 +100,60 @@ class FoamMonitoringSystem(QMainWindow):
             """
             self.setStyleSheet(tech_stylesheet)
 
+    def setup_log_display(self, layout, category):
+        """设置日志显示区域"""
+        log_group = QGroupBox("运行日志")
+        log_layout = QVBoxLayout(log_group)
+
+        # 日志显示文本框
+        log_text = QTextEdit()
+        log_text.setReadOnly(True)
+        log_text.setMaximumHeight(200)
+
+        # 日志控制按钮
+        button_layout = QHBoxLayout()
+        clear_btn = QPushButton("清空日志")
+        export_btn = QPushButton("导出日志")
+
+        clear_btn.clicked.connect(lambda: self.clear_logs(category, log_text))
+        export_btn.clicked.connect(lambda: self.export_logs(category))
+
+        button_layout.addWidget(clear_btn)
+        button_layout.addWidget(export_btn)
+
+        log_layout.addWidget(log_text)
+        log_layout.addLayout(button_layout)
+
+        layout.addWidget(log_group)
+
+        # 返回文本框引用用于更新
+        return log_text
+
+    def update_log_display(self, log_text, category):
+        """更新日志显示"""
+        logs = self.logger.get_logs(category)
+        log_text.setPlainText("\n".join(logs))
+        # 滚动到底部
+        log_text.verticalScrollBar().setValue(
+            log_text.verticalScrollBar().maximum()
+        )
+
+    def clear_logs(self, category, log_text):
+        """清空日志"""
+        self.logger.clear_logs(category)
+        self.update_log_display(log_text, category)
+
+    def export_logs(self, category):
+        """导出日志到文件"""
+        try:
+            filename = f"logs/{category}_log_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
+            logs = self.logger.get_logs(category)
+            with open(filename, 'w', encoding='utf-8') as f:
+                f.write("\n".join(logs))
+            self.logger.add_log(category, f"日志已导出到 {filename}")
+        except Exception as e:
+            self.logger.add_log(category, f"导出日志失败: {str(e)}", "ERROR")
+
     def setup_camera_previews(self, main_layout):
         """设置四台相机预览界面"""
         left_widget = QWidget()
@@ -183,6 +181,8 @@ class FoamMonitoringSystem(QMainWindow):
             video_label.setFixedSize(300, 225)  # 调整尺寸以适应四宫格布局
             video_label.setStyleSheet("border: 2px solid gray; background-color: black;")
             video_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            # 设置属性以便 QSS 选择器识别
+            video_label.setProperty("videoLabel", "true")
 
             # 添加状态标签
             status_label = QLabel("相机连接中...")
@@ -234,6 +234,9 @@ class FoamMonitoringSystem(QMainWindow):
 
         # 预测结果显示
         self.setup_prediction_display(layout)
+
+        # +++ 新增：添加日志显示区域 +++
+        self.setup_log_display(layout, category=monitor_tab.objectName())
 
         tab_widget.addTab(monitor_tab, "实时监测")
 
@@ -288,6 +291,7 @@ class FoamMonitoringSystem(QMainWindow):
         self.condition_indicator.setFixedSize(100, 100)
         self.condition_indicator.setStyleSheet(
             "background-color: green; border-radius: 50px;")
+        self.condition_indicator.setProperty("conditionIndicator", "true")
 
         # 工况描述
         self.condition_label = QLabel("正常工况")

@@ -1,4 +1,4 @@
-/* 科技风样式表 - 铅浮选监测系统 */
+/* 科技风样式表 - 铅浮选监测系统 - 修正版 */
 
 /* ===== 全局样式 ===== */
 QMainWindow {
@@ -77,13 +77,13 @@ QPushButton {
 }
 
 QPushButton:hover {
-    background-color: #00b4ff;
-    color: #0a0e14;
-    border: 1px solid #00ffff;
+    background-color: #2a3446;
+    color: #00ffff;
+    border: 1px solid #00b4ff;
 }
 
 QPushButton:pressed {
-    background-color: #0088cc;
+    background-color: #00b4ff;
     color: #0a0e14;
 }
 
@@ -100,13 +100,14 @@ QLabel {
     padding: 2px;
 }
 
+/* 状态标签 */
 QLabel[statusLabel="true"] {
     color: #00ff88;
     font-weight: bold;
     font-size: 11px;
 }
 
-/* ===== 视频标签样式 ===== */
+/* 视频标签 */
 QLabel[videoLabel="true"] {
     border: 2px solid #00b4ff;
     border-radius: 4px;
@@ -132,13 +133,16 @@ QComboBox::drop-down {
     subcontrol-position: top right;
     width: 20px;
     border-left: 1px solid #2a3446;
+    border-top-right-radius: 3px;
+    border-bottom-right-radius: 3px;
 }
 
 QComboBox::down-arrow {
-    image: none;
-    border-left: 4px solid transparent;
-    border-right: 4px solid transparent;
-    border-top: 4px solid #00b4ff;
+    width: 12px;
+    height: 12px;
+    border-left: 3px solid transparent;
+    border-right: 3px solid transparent;
+    border-top: 6px solid #00b4ff;
 }
 
 QComboBox QAbstractItemView {
@@ -147,6 +151,7 @@ QComboBox QAbstractItemView {
     border: 1px solid #00b4ff;
     selection-background-color: #00b4ff;
     selection-color: #0a0e14;
+    outline: 0;
 }
 
 /* ===== 数字调节框样式 ===== */
@@ -167,6 +172,7 @@ QSpinBox::up-button, QDoubleSpinBox::up-button {
     subcontrol-position: top right;
     width: 20px;
     border-left: 1px solid #2a3446;
+    border-top-right-radius: 3px;
 }
 
 QSpinBox::down-button, QDoubleSpinBox::down-button {
@@ -174,18 +180,23 @@ QSpinBox::down-button, QDoubleSpinBox::down-button {
     subcontrol-position: bottom right;
     width: 20px;
     border-left: 1px solid #2a3446;
+    border-bottom-right-radius: 3px;
 }
 
 QSpinBox::up-arrow, QDoubleSpinBox::up-arrow {
-    border-left: 4px solid transparent;
-    border-right: 4px solid transparent;
-    border-bottom: 4px solid #00b4ff;
+    border-left: 5px solid transparent;
+    border-right: 5px solid transparent;
+    border-bottom: 5px solid #00b4ff;
+    width: 0;
+    height: 0;
 }
 
 QSpinBox::down-arrow, QDoubleSpinBox::down-arrow {
-    border-left: 4px solid transparent;
-    border-right: 4px solid transparent;
-    border-top: 4px solid #00b4ff;
+    border-left: 5px solid transparent;
+    border-right: 5px solid transparent;
+    border-top: 5px solid #00b4ff;
+    width: 0;
+    height: 0;
 }
 
 /* ===== 表格样式 ===== */
@@ -195,6 +206,7 @@ QTableWidget {
     border: 1px solid #2a3446;
     border-radius: 4px;
     gridline-color: #2a3446;
+    alternate-background-color: #1a1f29;
 }
 
 QTableWidget::item {
@@ -229,13 +241,13 @@ QStatusBar::item {
 /* ===== 滚动条样式 ===== */
 QScrollBar:vertical {
     background-color: #1a1f29;
-    width: 12px;
-    border-radius: 6px;
+    width: 15px;
+    border-radius: 7px;
 }
 
 QScrollBar::handle:vertical {
     background-color: #00b4ff;
-    border-radius: 6px;
+    border-radius: 7px;
     min-height: 20px;
 }
 
@@ -246,6 +258,18 @@ QScrollBar::handle:vertical:hover {
 QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
     border: none;
     background: none;
+}
+
+QScrollBar:horizontal {
+    background-color: #1a1f29;
+    height: 15px;
+    border-radius: 7px;
+}
+
+QScrollBar::handle:horizontal {
+    background-color: #00b4ff;
+    border-radius: 7px;
+    min-width: 20px;
 }
 
 /* ===== 指示灯样式 ===== */
@@ -260,7 +284,7 @@ QLabel[conditionIndicator="true"] {
 }
 
 /* ===== 图表控件样式 ===== */
-QWidget[graphicsWidget="true"] {
+GraphicsLayoutWidget {
     background-color: #0a0e14;
     border: 1px solid #00b4ff;
     border-radius: 4px;
@@ -289,13 +313,4 @@ QLabel[success="true"] {
 QMainWindow {
     background: qlineargradient(x1: 0, y1: 0, x2: 1, y2: 1,
                                stop: 0 #0a0e14, stop: 0.5 #131823, stop: 1 #0a0e14);
-}
-
-/* ===== 动画效果支持 ===== */
-QPushButton {
-    transition: all 0.3s ease;
-}
-
-QComboBox, QSpinBox, QDoubleSpinBox {
-    transition: border 0.3s ease;
 }

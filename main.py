@@ -2,6 +2,7 @@ import sys
 from PySide6.QtWidgets import QApplication
 from FoamMonitoringSystem import FoamMonitoringSystem
 
+
 def main():
     """主函数"""
     try:
