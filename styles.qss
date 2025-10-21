@@ -1,0 +1,107 @@
+/* styles.qss */
+QMainWindow {
+  background: qlineargradient(
+    x1: 0,
+    y1: 0,
+    x2: 1,
+    y2: 1,
+    stop: 0 #0a0a2a,
+    stop: 0.5 #1a1a3a,
+    stop: 1 #0a0a2a
+  );
+  color: white;
+}
+
+.tech-widget {
+  background-color: rgba(10, 20, 40, 0.8);
+  border: 2px solid #00ffff;
+  border-radius: 10px;
+  color: #ffffff;
+  font-family: "Segoe UI", Arial, sans-serif;
+}
+
+.digital-display {
+  background-color: #001122;
+  color: #00ff00;
+  font-family: "Courier New", monospace;
+  font-size: 24px;
+  font-weight: bold;
+  border: 2px solid #0088ff;
+  border-radius: 5px;
+  padding: 10px;
+}
+
+.tech-button {
+  background: qlineargradient(
+    x1: 0,
+    y1: 0,
+    x2: 0,
+    y2: 1,
+    stop: 0 #0066cc,
+    stop: 1 #003366
+  );
+  border: 2px solid #00aaff;
+  border-radius: 8px;
+  color: white;
+  font-weight: bold;
+  font-size: 14px;
+  padding: 8px 16px;
+  min-height: 30px;
+}
+
+.tech-button:hover {
+  background: qlineargradient(
+    x1: 0,
+    y1: 0,
+    x2: 0,
+    y2: 1,
+    stop: 0 #0088ff,
+    stop: 1 #0055aa
+  );
+  border: 2px solid #00ccff;
+}
+
+.tech-button:pressed {
+  background: qlineargradient(
+    x1: 0,
+    y1: 0,
+    x2: 0,
+    y2: 1,
+    stop: 0 #004488,
+    stop: 1 #002244
+  );
+}
+
+.control-title {
+  color: #00ffff;
+  font-size: 20px;
+  font-weight: bold;
+  padding: 10px;
+  text-align: center;
+  border-bottom: 2px solid #0088ff;
+  margin-bottom: 10px;
+}
+
+.data-title {
+  color: #00ff88;
+  font-size: 18px;
+  font-weight: bold;
+  padding: 10px;
+  text-align: center;
+}
+
+.status-label {
+  background-color: #004400;
+  color: #00ff00;
+  font-weight: bold;
+  padding: 8px;
+  border: 1px solid #00ff00;
+  border-radius: 5px;
+  text-align: center;
+  margin: 10px;
+}
+
+.data-name-label {
+  color: #aaaaaa;
+  font-size: 12px;
+}
