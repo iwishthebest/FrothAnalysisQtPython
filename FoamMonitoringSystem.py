@@ -8,6 +8,7 @@ from PySide6.QtGui import QFont, QPixmap, QImage, QIcon
 import pyqtgraph as pg
 import cv2
 from datetime import datetime
+# 自定义模块，存放路径./utils
 from utils.system_logger import SystemLogger
 from utils.capture_frame import capture_frame
 
@@ -17,11 +18,11 @@ class FoamMonitoringSystem(QMainWindow):
         super().__init__()
         # 添加日志管理器
         self.logger = SystemLogger()
-        self.log_text_edit = None
+        # 存储各选项卡的日志文本框
+        self.log_texts = {}  # 新增：统一管理所有日志文本框
 
         # 视频监控相关变量
         self.video_labels = []  # 存储四个相机预览标签
-        self.video_timer = None
 
         # 图表显示相关变量
         self.bubble_size_plot = None
@@ -52,6 +53,8 @@ class FoamMonitoringSystem(QMainWindow):
         # 定时器相关变量
         self.data_timer = None
         self.status_timer = None
+        self.video_timer = None
+        self.logger_timer = None
 
         # 历史数据相关变量
         self.history_table = None
@@ -100,33 +103,41 @@ class FoamMonitoringSystem(QMainWindow):
             """
             self.setStyleSheet(tech_stylesheet)
 
-    def setup_log_display(self, layout, category):
-        """设置日志显示区域"""
+    def setup_log_display(self, layout, category, max_height=180):
+        """设置统一尺寸的日志显示区域"""
         log_group = QGroupBox("运行日志")
         log_layout = QVBoxLayout(log_group)
+
+        # 设置日志组的最小高度
+        log_group.setMinimumHeight(max_height)
+        log_group.setMaximumHeight(max_height)
 
         # 日志显示文本框
         log_text = QTextEdit()
         log_text.setReadOnly(True)
-        log_text.setMaximumHeight(200)
+        log_text.setMaximumHeight(120)  # 固定文本框高度
 
         # 日志控制按钮
         button_layout = QHBoxLayout()
         clear_btn = QPushButton("清空日志")
         export_btn = QPushButton("导出日志")
+        clear_btn.setMaximumWidth(80)
+        export_btn.setMaximumWidth(80)
 
         clear_btn.clicked.connect(lambda: self.clear_logs(category, log_text))
         export_btn.clicked.connect(lambda: self.export_logs(category))
 
         button_layout.addWidget(clear_btn)
         button_layout.addWidget(export_btn)
+        button_layout.addStretch()  # 添加弹性空间
 
         log_layout.addWidget(log_text)
         log_layout.addLayout(button_layout)
 
         layout.addWidget(log_group)
 
-        # 返回文本框引用用于更新
+        # 存储到字典中统一管理
+        self.log_texts[category] = log_text
         return log_text
 
     def update_log_display(self, log_text, category):
@@ -138,6 +149,15 @@ class FoamMonitoringSystem(QMainWindow):
             log_text.verticalScrollBar().maximum()
         )
 
+    def update_all_logs(self):
+        """统一更新所有选项卡的日志显示"""
+        try:
+            for category, log_text in self.log_texts.items():
+                if log_text is not None:
+                    self.update_log_display(log_text, category)
+        except Exception as e:
+            print(f"更新日志显示时出错: {e}")
+
     def clear_logs(self, category, log_text):
         """清空日志"""
         self.logger.clear_logs(category)
@@ -146,7 +166,7 @@ class FoamMonitoringSystem(QMainWindow):
     def export_logs(self, category):
         """导出日志到文件"""
         try:
-            filename = f"logs/{category}_log_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
+            filename = f"logs/{category}_log_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
             logs = self.logger.get_logs(category)
             with open(filename, 'w', encoding='utf-8') as f:
                 f.write("\n".join(logs))
@@ -206,11 +226,12 @@ class FoamMonitoringSystem(QMainWindow):
     def setup_control_panel(self, main_layout):
         """设置右侧控制面板"""
         right_widget = QTabWidget()
+        right_widget.setMinimumWidth(500)  # 设置最小宽度
 
         # 选项卡1: 实时监测
         self.setup_monitoring_tab(right_widget)
 
-        # 选项卡2: 控制参数
+        # 选项卡2: 实时监测
         self.setup_control_tab(right_widget)
 
         # 选项卡3: 历史数据
@@ -219,50 +240,170 @@ class FoamMonitoringSystem(QMainWindow):
         # 选项卡4: 系统设置
         self.setup_settings_tab(right_widget)
 
-        main_layout.addWidget(right_widget, 30)  # 30%宽度
+        main_layout.addWidget(right_widget, 35)  # 调整为35%宽度
 
     def setup_monitoring_tab(self, tab_widget):
-        """实时监测选项卡"""
+        """实时监测选项卡 - 优化布局"""
         monitor_tab = QWidget()
-        layout = QVBoxLayout(monitor_tab)
+        main_layout = QVBoxLayout(monitor_tab)
 
-        # 工况状态显示
-        self.setup_condition_monitoring(layout)
+        # 创建滚动区域以适应内容
+        scroll_widget = QWidget()
+        scroll_layout = QVBoxLayout(scroll_widget)
 
-        # 特征参数图表
-        self.setup_feature_charts(layout)
+        # 工况状态显示 - 紧凑布局
+        condition_widget = QWidget()
+        condition_layout = QHBoxLayout(condition_widget)
+        self.setup_condition_monitoring(condition_layout)
+        scroll_layout.addWidget(condition_widget)
 
-        # 预测结果显示
-        self.setup_prediction_display(layout)
+        # 特征参数图表 - 设置固定高度
+        charts_widget = QWidget()
+        charts_layout = QVBoxLayout(charts_widget)
+        charts_layout.addWidget(self.setup_feature_charts())
+        charts_widget.setMaximumHeight(300)  # 限制图表高度
+        scroll_layout.addWidget(charts_widget)
 
-        # +++ 新增：添加日志显示区域 +++
-        self.setup_log_display(layout, category=monitor_tab.objectName())
+        # 预测结果显示 - 紧凑布局
+        prediction_widget = QWidget()
+        prediction_layout = QHBoxLayout(prediction_widget)
+        self.setup_prediction_display(prediction_layout)
+        prediction_widget.setMaximumHeight(60)
+        scroll_layout.addWidget(prediction_widget)
+
+        # 添加弹性空间
+        scroll_layout.addStretch()
+
+        # 创建滚动区域
+        from PySide6.QtWidgets import QScrollArea
+        scroll_area = QScrollArea()
+        scroll_area.setWidget(scroll_widget)
+        scroll_area.setWidgetResizable(True)
+        scroll_area.setMaximumHeight(400)  # 限制滚动区域高度
+
+        main_layout.addWidget(scroll_area)
+
+        # 添加日志显示区域 - 固定高度
+        self.setup_log_display(main_layout, 'monitoring', 180)
 
         tab_widget.addTab(monitor_tab, "实时监测")
 
     def setup_control_tab(self, tab_widget):
-        """控制参数选项卡"""
+        """控制参数选项卡 - 优化布局"""
         control_tab = QWidget()
-        layout = QVBoxLayout(control_tab)
+        main_layout = QVBoxLayout(control_tab)
 
-        # 液位控制组
+        # 创建滚动区域
+        scroll_widget = QWidget()
+        scroll_layout = QVBoxLayout(scroll_widget)
+
+        # 液位控制组 - 紧凑布局
         level_group = QGroupBox("液位智能控制")
         level_layout = QVBoxLayout(level_group)
-
-        # 液位控制参数
         self.setup_level_control(level_layout)
-        layout.addWidget(level_group)
+        level_group.setMaximumHeight(120)
+        scroll_layout.addWidget(level_group)
 
-        # 加药量控制组
+        # 加药量控制组 - 紧凑布局
         dosing_group = QGroupBox("加药量自动控制")
         dosing_layout = QVBoxLayout(dosing_group)
         self.setup_dosing_control(dosing_layout)
-        layout.addWidget(dosing_group)
+        dosing_group.setMaximumHeight(120)
+        scroll_layout.addWidget(dosing_group)
 
-        # 控制模式选择
-        self.setup_control_mode(layout)
+        # 控制模式选择 - 紧凑布局
+        mode_widget = QWidget()
+        mode_layout = QHBoxLayout(mode_widget)
+        self.setup_control_mode(mode_layout)
+        mode_widget.setMaximumHeight(60)
+        scroll_layout.addWidget(mode_widget)
+
+        scroll_layout.addStretch()
+
+        # 滚动区域
+        from PySide6.QtWidgets import QScrollArea
+        scroll_area = QScrollArea()
+        scroll_area.setWidget(scroll_widget)
+        scroll_area.setWidgetResizable(True)
+        scroll_area.setMaximumHeight(300)
+
+        main_layout.addWidget(scroll_area)
+
+        # 添加日志显示区域
+        self.setup_log_display(main_layout, 'control', 180)
 
         tab_widget.addTab(control_tab, "控制参数")
+
+    def setup_history_tab(self, tab_widget):
+        """历史数据选项卡 - 优化布局"""
+        try:
+            history_tab = QWidget()
+            main_layout = QVBoxLayout(history_tab)
+
+            # 历史数据表格 - 占据主要空间
+            table_widget = QWidget()
+            table_layout = QVBoxLayout(table_widget)
+
+            self.history_table = QTableWidget()
+            self.history_table.setColumnCount(5)
+            self.history_table.setHorizontalHeaderLabels([
+                "时间", "工况", "铅品位%", "回收率%", "液位(m)"
+            ])
+            # 设置表格属性
+            self.history_table.setAlternatingRowColors(True)
+            self.history_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+            self.history_table.setMaximumHeight(400)
+
+            table_layout.addWidget(self.history_table)
+            main_layout.addWidget(table_widget)
+
+            # 添加日志显示区域
+            self.setup_log_display(main_layout, 'history', 180)
+
+            tab_widget.addTab(history_tab, "历史数据")
+        except Exception as e:
+            self.logger.add_log("history", f"设置历史数据选项卡时出错: {e}", "WARNING")
+
+    def setup_settings_tab(self, tab_widget):
+        """系统设置选项卡 - 优化布局"""
+        try:
+            settings_tab = QWidget()
+            main_layout = QVBoxLayout(settings_tab)
+
+            # 系统设置组 - 紧凑布局
+            settings_group = QGroupBox("系统设置")
+            settings_layout = QVBoxLayout(settings_group)
+            settings_group.setMaximumHeight(150)
+
+            # 相机设置
+            camera_layout = QHBoxLayout()
+            camera_layout.addWidget(QLabel("相机分辨率:"))
+            self.resolution_combo = QComboBox()
+            self.resolution_combo.addItems(["640x480", "1280x720", "1920x1080"])
+            camera_layout.addWidget(self.resolution_combo)
+            camera_layout.addStretch()
+            settings_layout.addLayout(camera_layout)
+
+            # 数据保存设置
+            save_layout = QHBoxLayout()
+            save_layout.addWidget(QLabel("数据保存间隔:"))
+            self.save_interval = QSpinBox()
+            self.save_interval.setRange(1, 60)
+            self.save_interval.setValue(10)
+            self.save_interval.setSuffix(" 分钟")
+            save_layout.addWidget(self.save_interval)
+            save_layout.addStretch()
+            settings_layout.addLayout(save_layout)
+
+            main_layout.addWidget(settings_group)
+            main_layout.addStretch()  # 添加弹性空间
+
+            # 添加日志显示区域
+            self.setup_log_display(main_layout, 'settings', 180)
+
+            tab_widget.addTab(settings_tab, "系统设置")
+        except Exception as e:
+            print(f"设置系统设置选项卡时出错: {e}")
 
     def setup_status_bar(self):
         """设置状态栏"""
@@ -282,61 +423,69 @@ class FoamMonitoringSystem(QMainWindow):
         status_bar.addPermanentWidget(self.connection_label)
 
     def setup_condition_monitoring(self, layout):
-        """工况状态监控"""
+        """工况状态监控 - 紧凑布局"""
         condition_group = QGroupBox("工况状态")
         condition_layout = QHBoxLayout(condition_group)
+        condition_group.setMaximumHeight(100)  # 限制高度
 
         # 工况指示灯
         self.condition_indicator = QLabel()
-        self.condition_indicator.setFixedSize(100, 100)
+        self.condition_indicator.setFixedSize(80, 80)  # 缩小指示灯
         self.condition_indicator.setStyleSheet(
-            "background-color: green; border-radius: 50px;")
+            "background-color: green; border-radius: 40px;")
         self.condition_indicator.setProperty("conditionIndicator", "true")
 
         # 工况描述
         self.condition_label = QLabel("正常工况")
-        self.condition_label.setFont(QFont("Arial", 16, QFont.Weight.Bold))
+        self.condition_label.setFont(QFont("Arial", 14, QFont.Weight.Bold))
 
         condition_layout.addWidget(self.condition_indicator)
         condition_layout.addWidget(self.condition_label)
+        condition_layout.addStretch()
+
         layout.addWidget(condition_group)
 
-    def setup_feature_charts(self, layout):
-        """特征参数图表"""
+    def setup_feature_charts(self):
+        """特征参数图表 - 返回图表部件"""
         # 创建图表区域
         graphics_widget = pg.GraphicsLayoutWidget()
+        graphics_widget.setMaximumHeight(250)  # 限制图表高度
 
         # 气泡大小分布图
         self.bubble_size_plot = graphics_widget.ci.addPlot(title="气泡大小分布")
         self.bubble_size_curve = self.bubble_size_plot.plot(pen='y')
+        self.bubble_size_plot.setMaximumHeight(80)
 
         # 泡沫流速趋势图
         self.flow_velocity_plot = graphics_widget.ci.addPlot(title="泡沫流速趋势")
         self.flow_velocity_curve = self.flow_velocity_plot.plot(pen='b')
-
-        graphics_widget.ci.nextRow()
+        self.flow_velocity_plot.setMaximumHeight(80)
 
         # 纹理特征图
         self.texture_plot = graphics_widget.ci.addPlot(title="纹理特征")
         self.texture_curve = self.texture_plot.plot(pen='g')
+        self.texture_plot.setMaximumHeight(80)
 
-        layout.addWidget(graphics_widget)
+        return graphics_widget
 
     def setup_prediction_display(self, layout):
-        """预测结果显示"""
+        """预测结果显示 - 紧凑布局"""
         prediction_group = QGroupBox("关键指标预测")
         prediction_layout = QHBoxLayout(prediction_group)
+        prediction_group.setMaximumHeight(70)  # 限制高度
 
         # 品位预测
         self.grade_label = QLabel("铅品位: --%")
-        self.grade_label.setFont(QFont("Arial", 14))
+        self.grade_label.setFont(QFont("Arial", 12))
 
         # 回收率预测
         self.recovery_label = QLabel("回收率: --%")
-        self.recovery_label.setFont(QFont("Arial", 14))
+        self.recovery_label.setFont(QFont("Arial", 12))
 
         prediction_layout.addWidget(self.grade_label)
         prediction_layout.addWidget(self.recovery_label)
+        prediction_layout.addStretch()
+
         layout.addWidget(prediction_group)
 
     def setup_level_control(self, layout):
@@ -407,56 +556,10 @@ class FoamMonitoringSystem(QMainWindow):
         self.status_timer.timeout.connect(self.update_status)
         self.status_timer.start(1000)  # 1Hz
 
-    def setup_history_tab(self, tab_widget):
-        """历史数据选项卡"""
-        try:
-            history_tab = QWidget()
-            layout = QVBoxLayout(history_tab)
-
-            # 历史数据表格
-            self.history_table = QTableWidget()
-            self.history_table.setColumnCount(5)
-            self.history_table.setHorizontalHeaderLabels([
-                "时间", "工况", "铅品位%", "回收率%", "液位(m)"
-            ])
-            layout.addWidget(self.history_table)
-
-            tab_widget.addTab(history_tab, "历史数据")
-        except Exception as e:
-            print(f"设置历史数据选项卡时出错: {e}")
-
-    def setup_settings_tab(self, tab_widget):
-        """系统设置选项卡"""
-        try:
-            settings_tab = QWidget()
-            layout = QVBoxLayout(settings_tab)
-
-            # 系统设置组
-            settings_group = QGroupBox("系统设置")
-            settings_layout = QVBoxLayout(settings_group)
-
-            # 相机设置
-            camera_layout = QHBoxLayout()
-            camera_layout.addWidget(QLabel("相机分辨率:"))
-            self.resolution_combo = QComboBox()
-            self.resolution_combo.addItems(["640x480", "1280x720", "1920x1080"])
-            camera_layout.addWidget(self.resolution_combo)
-            settings_layout.addLayout(camera_layout)
-
-            # 数据保存设置
-            save_layout = QHBoxLayout()
-            save_layout.addWidget(QLabel("数据保存间隔:"))
-            self.save_interval = QSpinBox()
-            self.save_interval.setRange(1, 60)
-            self.save_interval.setValue(10)
-            self.save_interval.setSuffix(" 分钟")
-            save_layout.addWidget(self.save_interval)
-            settings_layout.addLayout(save_layout)
-
-            layout.addWidget(settings_group)
-            tab_widget.addTab(settings_tab, "系统设置")
-        except Exception as e:
-            print(f"设置系统设置选项卡时出错: {e}")
+        # 统一日志更新定时器
+        self.logger_timer = QTimer()
+        self.logger_timer.timeout.connect(self.update_all_logs)
+        self.logger_timer.start(5000)  # 5秒更新一次
 
     def setup_control_mode(self, layout):
         """控制模式选择"""
