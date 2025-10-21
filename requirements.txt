@@ -1,3 +1,6 @@
+opencv-python
+pyqtgraph
+numpy
 # requirements.txt
 # This file lists the dependencies for the PySide6 application.
 # To install the dependencies, run:
