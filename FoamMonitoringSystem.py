@@ -2,7 +2,8 @@ import numpy as np
 from PySide6.QtWidgets import (QMainWindow, QWidget, QLabel, QPushButton,
                                QVBoxLayout, QHBoxLayout, QGridLayout,
                                QTabWidget, QGroupBox, QComboBox, QSpinBox,
-                               QDoubleSpinBox, QTableWidget, QStatusBar, QTextEdit)
+                               QDoubleSpinBox, QTableWidget, QStatusBar, QTextEdit,
+                               QScrollArea, QTableWidgetItem, QProgressBar)
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QFont, QPixmap, QImage, QIcon
 import pyqtgraph as pg
@@ -14,9 +15,17 @@ from utils.capture_frame import capture_frame
 
 
 class FoamMonitoringSystem(QMainWindow):
+
+    # 1.初始化与核心设置方法
     def __init__(self):
         super().__init__()
         # 添加日志管理器
+        self.flow_curve = None
+        self.bubble_curve = None
+        self.main_plot = None
+        self.realtime_table = None
+        self.graphics_widget = None
+        self.charts_container = None
         self.logger = SystemLogger()
         # 存储各选项卡的日志文本框
         self.log_texts = {}  # 新增：统一管理所有日志文本框
@@ -103,77 +112,29 @@ class FoamMonitoringSystem(QMainWindow):
             """
             self.setStyleSheet(tech_stylesheet)
 
-    def setup_log_display(self, layout, category, max_height=180):
-        """设置统一尺寸的日志显示区域"""
-        log_group = QGroupBox("运行日志")
-        log_layout = QVBoxLayout(log_group)
+    def setup_timers(self):
+        """设置定时器"""
+        # 数据更新定时器
+        self.data_timer = QTimer()
+        self.data_timer.timeout.connect(self.update_display_data)
+        self.data_timer.start(100)  # 10Hz更新
 
-        # 设置日志组的最小高度
-        log_group.setMinimumHeight(max_height)
-        log_group.setMaximumHeight(max_height)
+        # 视频更新定时器
+        self.video_timer = QTimer()
+        self.video_timer.timeout.connect(self.update_video_display)
+        self.video_timer.start(33)  # 30fps
 
-        # 日志显示文本框
-        log_text = QTextEdit()
-        log_text.setReadOnly(True)
-        log_text.setMaximumHeight(120)  # 固定文本框高度
+        # 状态更新定时器
+        self.status_timer = QTimer()
+        self.status_timer.timeout.connect(self.update_status)
+        self.status_timer.start(1000)  # 1Hz
 
-        # 日志控制按钮
-        button_layout = QHBoxLayout()
-        clear_btn = QPushButton("清空日志")
-        export_btn = QPushButton("导出日志")
-        clear_btn.setMaximumWidth(80)
-        export_btn.setMaximumWidth(80)
+        # 统一日志更新定时器
+        self.logger_timer = QTimer()
+        self.logger_timer.timeout.connect(self.update_all_logs)
+        self.logger_timer.start(5000)  # 5秒更新一次
 
-        clear_btn.clicked.connect(lambda: self.clear_logs(category, log_text))
-        export_btn.clicked.connect(lambda: self.export_logs(category))
-
-        button_layout.addWidget(clear_btn)
-        button_layout.addWidget(export_btn)
-        button_layout.addStretch()  # 添加弹性空间
-
-        log_layout.addWidget(log_text)
-        log_layout.addLayout(button_layout)
-
-        layout.addWidget(log_group)
-
-        # 存储到字典中统一管理
-        self.log_texts[category] = log_text
-        return log_text
-
-    def update_log_display(self, log_text, category):
-        """更新日志显示"""
-        logs = self.logger.get_logs(category)
-        log_text.setPlainText("\n".join(logs))
-        # 滚动到底部
-        log_text.verticalScrollBar().setValue(
-            log_text.verticalScrollBar().maximum()
-        )
-
-    def update_all_logs(self):
-        """统一更新所有选项卡的日志显示"""
-        try:
-            for category, log_text in self.log_texts.items():
-                if log_text is not None:
-                    self.update_log_display(log_text, category)
-        except Exception as e:
-            print(f"更新日志显示时出错: {e}")
-
-    def clear_logs(self, category, log_text):
-        """清空日志"""
-        self.logger.clear_logs(category)
-        self.update_log_display(log_text, category)
-
-    def export_logs(self, category):
-        """导出日志到文件"""
-        try:
-            filename = f"logs/{category}_log_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
-            logs = self.logger.get_logs(category)
-            with open(filename, 'w', encoding='utf-8') as f:
-                f.write("\n".join(logs))
-            self.logger.add_log(category, f"日志已导出到 {filename}")
-        except Exception as e:
-            self.logger.add_log(category, f"导出日志失败: {str(e)}", "ERROR")
-
+    # 2. 界面布局设置方法
     def setup_camera_previews(self, main_layout):
         """设置四台相机预览界面"""
         left_widget = QWidget()
@@ -243,48 +204,42 @@ class FoamMonitoringSystem(QMainWindow):
         main_layout.addWidget(right_widget, 35)  # 调整为35%宽度
 
     def setup_monitoring_tab(self, tab_widget):
-        """实时监测选项卡 - 优化布局"""
+        """实时监测选项卡"""
         monitor_tab = QWidget()
         main_layout = QVBoxLayout(monitor_tab)
 
-        # 创建滚动区域以适应内容
-        scroll_widget = QWidget()
-        scroll_layout = QVBoxLayout(scroll_widget)
+        # 创建滚动区域容器
+        scroll_content = QWidget()
+        scroll_layout = QVBoxLayout(scroll_content)
 
-        # 工况状态显示 - 紧凑布局
-        condition_widget = QWidget()
-        condition_layout = QHBoxLayout(condition_widget)
-        self.setup_condition_monitoring(condition_layout)
+        # 1. 工况状态区域
+        condition_widget = self.create_condition_section()
         scroll_layout.addWidget(condition_widget)
 
-        # 特征参数图表 - 设置固定高度
-        charts_widget = QWidget()
-        charts_layout = QVBoxLayout(charts_widget)
-        charts_layout.addWidget(self.setup_feature_charts())
-        charts_widget.setMaximumHeight(300)  # 限制图表高度
-        scroll_layout.addWidget(charts_widget)
-
-        # 预测结果显示 - 紧凑布局
-        prediction_widget = QWidget()
-        prediction_layout = QHBoxLayout(prediction_widget)
-        self.setup_prediction_display(prediction_layout)
-        prediction_widget.setMaximumHeight(60)
+        # 2. 关键指标预测
+        prediction_widget = self.create_prediction_section()
         scroll_layout.addWidget(prediction_widget)
 
-        # 添加弹性空间
+        # 3. 特征参数图表 - 确保正确初始化
+        charts_widget = self.create_charts_section()
+        scroll_layout.addWidget(charts_widget)
+
+        # 4. 实时数据表格
+        data_widget = self.create_realtime_data_section()
+        scroll_layout.addWidget(data_widget)
+
         scroll_layout.addStretch()
 
-        # 创建滚动区域
-        from PySide6.QtWidgets import QScrollArea
+        # 滚动区域设置
         scroll_area = QScrollArea()
-        scroll_area.setWidget(scroll_widget)
+        scroll_area.setWidget(scroll_content)
         scroll_area.setWidgetResizable(True)
-        scroll_area.setMaximumHeight(400)  # 限制滚动区域高度
+        scroll_area.setMaximumHeight(500)
 
         main_layout.addWidget(scroll_area)
 
-        # 添加日志显示区域 - 固定高度
-        self.setup_log_display(main_layout, 'monitoring', 180)
+        # 5. 日志显示区域
+        self.setup_log_display(main_layout, 'monitoring', 200)
 
         tab_widget.addTab(monitor_tab, "实时监测")
 
@@ -422,28 +377,132 @@ class FoamMonitoringSystem(QMainWindow):
         self.connection_label = QLabel("PLC: 已连接 | 泡沫相机: 4/4 已连接")
         status_bar.addPermanentWidget(self.connection_label)
 
-    def setup_condition_monitoring(self, layout):
-        """工况状态监控 - 紧凑布局"""
-        condition_group = QGroupBox("工况状态")
-        condition_layout = QHBoxLayout(condition_group)
-        condition_group.setMaximumHeight(100)  # 限制高度
+    # 3. 界面组件创建方法
+    def create_condition_section(self):
+        """创建工况状态区域"""
+        widget = QGroupBox("工况状态监控")
+        layout = QGridLayout(widget)
 
-        # 工况指示灯
+        # 指示灯
         self.condition_indicator = QLabel()
-        self.condition_indicator.setFixedSize(80, 80)  # 缩小指示灯
-        self.condition_indicator.setStyleSheet(
-            "background-color: green; border-radius: 40px;")
-        self.condition_indicator.setProperty("conditionIndicator", "true")
+        self.condition_indicator.setFixedSize(60, 60)
+        self.condition_indicator.setStyleSheet("""
+            QLabel {
+                background-color: #00ff00; 
+                border-radius: 30px;
+                border: 3px solid #ffffff;
+            }
+        """)
 
-        # 工况描述
+        # 状态信息
         self.condition_label = QLabel("正常工况")
-        self.condition_label.setFont(QFont("Arial", 14, QFont.Weight.Bold))
+        self.condition_label.setFont(QFont("Arial", 12, QFont.Weight.Bold))
 
-        condition_layout.addWidget(self.condition_indicator)
-        condition_layout.addWidget(self.condition_label)
-        condition_layout.addStretch()
+        # 详细状态
+        status_layout = QVBoxLayout()
+        self.grade_label = QLabel("铅品位: --%")
+        self.recovery_label = QLabel("回收率: --%")
+        status_layout.addWidget(self.grade_label)
+        status_layout.addWidget(self.recovery_label)
 
-        layout.addWidget(condition_group)
+        layout.addWidget(self.condition_indicator, 0, 0, 2, 1)
+        layout.addWidget(self.condition_label, 0, 1)
+        layout.addLayout(status_layout, 1, 1)
+
+        widget.setMaximumHeight(100)
+        return widget
+
+    def create_prediction_section(self):
+        """创建关键指标预测区域"""
+        widget = QGroupBox("关键指标预测")
+        layout = QHBoxLayout(widget)
+
+        # 使用进度条显示预测值
+        grade_widget = self.create_prediction_item("铅品位", "grade_prediction", "%")
+        recovery_widget = self.create_prediction_item("回收率", "recovery_prediction", "%")
+
+        layout.addWidget(grade_widget)
+        layout.addWidget(recovery_widget)
+
+        widget.setMaximumHeight(80)
+        return widget
+
+    def create_charts_section(self):
+        """创建图表区域 - 完整修复版本"""
+        widget = QGroupBox("特征参数趋势")
+        widget.setCheckable(True)
+        widget.setChecked(False)
+
+        # 使用lambda函数确保正确的sender传递
+        widget.toggled.connect(lambda checked, group_box=widget: self.on_charts_toggled(checked, group_box))
+
+        layout = QVBoxLayout(widget)
+
+        # 图表容器
+        self.charts_container = QWidget()
+        charts_layout = QVBoxLayout(self.charts_container)
+
+        # 创建图表部件
+        try:
+            self.graphics_widget = pg.GraphicsLayoutWidget()
+            self.graphics_widget.setMaximumHeight(180)
+
+            # 创建图表和曲线
+            plot = self.graphics_widget.ci.addPlot(title="实时特征参数")
+            plot.showGrid(x=True, y=True, alpha=0.3)
+
+            # 初始化曲线对象
+            self.bubble_curve = plot.plot(pen='y', name="气泡大小")
+            self.flow_curve = plot.plot(pen='b', name="流速")
+            self.texture_curve = plot.plot(pen='g', name="纹理")
+
+            plot.addLegend()
+            charts_layout.addWidget(self.graphics_widget)
+
+        except Exception as e:
+            print(f"创建图表失败: {e}")
+            error_label = QLabel("图表初始化失败")
+            error_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            charts_layout.addWidget(error_label)
+
+            # 设置None值避免后续错误
+            self.bubble_curve = None
+            self.flow_curve = None
+            self.texture_curve = None
+
+        layout.addWidget(self.charts_container)
+
+        # 初始状态隐藏图表
+        self.charts_container.setVisible(False)
+
+        return widget
+
+    def create_realtime_data_section(self):
+        """创建实时数据表格"""
+        widget = QGroupBox("实时数据")
+        layout = QVBoxLayout(widget)
+
+        # 紧凑型表格
+        table = QTableWidget(6, 3)
+        table.setHorizontalHeaderLabels(["参数", "数值", "单位"])
+        table.setVerticalHeaderLabels([
+            "泡沫厚度", "气泡尺寸", "流速", "纹理", "稳定性", "浓度"
+        ])
+
+        # 设置表格属性
+        table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        table.setAlternatingRowColors(True)
+        table.horizontalHeader().setStretchLastSection(True)
+        table.setMaximumHeight(180)
+
+        # 设置列宽
+        table.setColumnWidth(0, 80)
+        table.setColumnWidth(1, 60)
+
+        layout.addWidget(table)
+        self.realtime_table = table
+
+        return widget
 
     def setup_feature_charts(self):
         """特征参数图表 - 返回图表部件"""
@@ -467,6 +526,29 @@ class FoamMonitoringSystem(QMainWindow):
         self.texture_plot.setMaximumHeight(80)
 
         return graphics_widget
+
+    def setup_condition_monitoring(self, layout):
+        """工况状态监控 - 紧凑布局"""
+        condition_group = QGroupBox("工况状态")
+        condition_layout = QHBoxLayout(condition_group)
+        condition_group.setMaximumHeight(100)  # 限制高度
+
+        # 工况指示灯
+        self.condition_indicator = QLabel()
+        self.condition_indicator.setFixedSize(80, 80)  # 缩小指示灯
+        self.condition_indicator.setStyleSheet(
+            "background-color: green; border-radius: 40px;")
+        self.condition_indicator.setProperty("conditionIndicator", "true")
+
+        # 工况描述
+        self.condition_label = QLabel("正常工况")
+        self.condition_label.setFont(QFont("Arial", 14, QFont.Weight.Bold))
+
+        condition_layout.addWidget(self.condition_indicator)
+        condition_layout.addWidget(self.condition_label)
+        condition_layout.addStretch()
+
+        layout.addWidget(condition_group)
 
     def setup_prediction_display(self, layout):
         """预测结果显示 - 紧凑布局"""
@@ -539,28 +621,6 @@ class FoamMonitoringSystem(QMainWindow):
         dosing_layout.addWidget(self.current_dosing_label)
         layout.addLayout(dosing_layout)
 
-    def setup_timers(self):
-        """设置定时器"""
-        # 数据更新定时器
-        self.data_timer = QTimer()
-        self.data_timer.timeout.connect(self.update_display_data)
-        self.data_timer.start(100)  # 10Hz更新
-
-        # 视频更新定时器
-        self.video_timer = QTimer()
-        self.video_timer.timeout.connect(self.update_video_display)
-        self.video_timer.start(33)  # 30fps
-
-        # 状态更新定时器
-        self.status_timer = QTimer()
-        self.status_timer.timeout.connect(self.update_status)
-        self.status_timer.start(1000)  # 1Hz
-
-        # 统一日志更新定时器
-        self.logger_timer = QTimer()
-        self.logger_timer.timeout.connect(self.update_all_logs)
-        self.logger_timer.start(5000)  # 5秒更新一次
-
     def setup_control_mode(self, layout):
         """控制模式选择"""
         try:
@@ -587,24 +647,108 @@ class FoamMonitoringSystem(QMainWindow):
             print(f"设置控制模式时出错: {e}")
 
     @staticmethod
-    def get_foam_features():
-        """模拟获取泡沫特征数据"""
-        return {
-            'bubble_size': np.random.uniform(5, 15),
-            'flow_velocity': [np.random.uniform(-0.1, 0.1), np.random.uniform(-0.1, 0.1)],
-            'texture_feature': np.random.uniform(0, 1)
-        }
+    def create_prediction_item(title, key, unit):
+        """创建单个预测项"""
+        widget = QWidget()
+        layout = QVBoxLayout(widget)
 
-    @staticmethod
-    def get_process_data():
-        """模拟获取工艺过程数据"""
-        return {
-            'current_level': np.random.uniform(1.1, 1.3),
-            'current_dosing': np.random.uniform(45, 55),
-            'grade_prediction': np.random.uniform(85, 95),
-            'recovery_prediction': np.random.uniform(88, 92)
-        }
+        # 标题和数值
+        title_layout = QHBoxLayout()
+        title_label = QLabel(title)
+        value_label = QLabel("--")
+        value_label.setObjectName(f"{key}_value")
+        value_label.setFont(QFont("Arial", 14, QFont.Weight.Bold))
 
+        title_layout.addWidget(title_label)
+        title_layout.addStretch()
+        title_layout.addWidget(value_label)
+        title_layout.addWidget(QLabel(unit))
+
+        # 进度条
+        progress = QProgressBar()
+        progress.setObjectName(f"{key}_progress")
+        progress.setRange(0, 100)
+        progress.setTextVisible(False)
+        progress.setFixedHeight(8)
+
+        layout.addLayout(title_layout)
+        layout.addWidget(progress)
+
+        return widget
+
+    # 4. 日志管理方法
+    def setup_log_display(self, layout, category, max_height=180):
+        """设置统一尺寸的日志显示区域"""
+        log_group = QGroupBox("运行日志")
+        log_layout = QVBoxLayout(log_group)
+
+        # 设置日志组的最小高度
+        log_group.setMinimumHeight(max_height)
+        log_group.setMaximumHeight(max_height)
+
+        # 日志显示文本框
+        log_text = QTextEdit()
+        log_text.setReadOnly(True)
+        log_text.setMaximumHeight(120)  # 固定文本框高度
+
+        # 日志控制按钮
+        button_layout = QHBoxLayout()
+        clear_btn = QPushButton("清空日志")
+        export_btn = QPushButton("导出日志")
+        clear_btn.setMaximumWidth(80)
+        export_btn.setMaximumWidth(80)
+
+        clear_btn.clicked.connect(lambda: self.clear_logs(category, log_text))
+        export_btn.clicked.connect(lambda: self.export_logs(category))
+
+        button_layout.addWidget(clear_btn)
+        button_layout.addWidget(export_btn)
+        button_layout.addStretch()  # 添加弹性空间
+
+        log_layout.addWidget(log_text)
+        log_layout.addLayout(button_layout)
+
+        layout.addWidget(log_group)
+
+        # 存储到字典中统一管理
+        self.log_texts[category] = log_text
+        return log_text
+
+    def update_log_display(self, log_text, category):
+        """更新日志显示"""
+        logs = self.logger.get_logs(category)
+        log_text.setPlainText("\n".join(logs))
+        # 滚动到底部
+        log_text.verticalScrollBar().setValue(
+            log_text.verticalScrollBar().maximum()
+        )
+
+    def update_all_logs(self):
+        """统一更新所有选项卡的日志显示"""
+        try:
+            for category, log_text in self.log_texts.items():
+                if log_text is not None:
+                    self.update_log_display(log_text, category)
+        except Exception as e:
+            print(f"更新日志显示时出错: {e}")
+
+    def clear_logs(self, category, log_text):
+        """清空日志"""
+        self.logger.clear_logs(category)
+        self.update_log_display(log_text, category)
+
+    def export_logs(self, category):
+        """导出日志到文件"""
+        try:
+            filename = f"logs/{category}_log_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
+            logs = self.logger.get_logs(category)
+            with open(filename, 'w', encoding='utf-8') as f:
+                f.write("\n".join(logs))
+            self.logger.add_log(category, f"日志已导出到 {filename}")
+        except Exception as e:
+            self.logger.add_log(category, f"导出日志失败: {str(e)}", "ERROR")
+
+    # 5. 数据更新与显示方法
     def update_video_display(self):
         """更新四台泡沫相机预览显示"""
         for i, foam_info in enumerate(self.video_labels):
@@ -655,21 +799,33 @@ class FoamMonitoringSystem(QMainWindow):
         self.time_label.setText(current_time)
 
     def update_charts(self, foam_features):
-        """更新图表显示"""
+        """更新图表显示 - 修复版本"""
         try:
+            # 检查曲线对象是否已初始化
+            if (self.bubble_curve is None or
+                    self.flow_curve is None or
+                    self.texture_curve is None):
+                print("图表曲线未初始化，跳过更新")
+                return
+
             # 模拟数据更新
             x_data = np.linspace(0, 10, 100)
 
             # 气泡大小分布
-            y_bubble = np.sin(x_data + foam_features.get('bubble_size', 0) * 0.1)
-            self.bubble_size_curve.setData(x_data, y_bubble)
+            bubble_size = foam_features.get('bubble_size', 5)
+            y_bubble = np.sin(x_data + bubble_size * 0.1)
 
             # 泡沫流速
-            y_flow = np.cos(x_data + foam_features.get('flow_velocity', [0, 0])[0] * 10)
-            self.flow_velocity_curve.setData(x_data, y_flow)
+            flow_velocity = foam_features.get('flow_velocity', [0, 0])[0]
+            y_flow = np.cos(x_data + flow_velocity * 10)
 
             # 纹理特征
-            y_texture = np.sin(x_data * 2) * foam_features.get('texture_feature', 0.5)
+            texture_feature = foam_features.get('texture_feature', 0.5)
+            y_texture = np.sin(x_data * 2) * texture_feature
+
+            # 更新曲线数据
+            self.bubble_curve.setData(x_data, y_bubble)
+            self.flow_curve.setData(x_data, y_flow)
             self.texture_curve.setData(x_data, y_texture)
 
         except Exception as e:
@@ -699,6 +855,64 @@ class FoamMonitoringSystem(QMainWindow):
         except Exception as e:
             print(f"更新控制显示时出错: {e}")
 
+    def update_realtime_table(self, foam_features):
+        """更新实时数据表格"""
+        data_mapping = [
+            ("厚度", foam_features.get('foam_thickness', 0), "cm"),
+            ("尺寸", foam_features.get('bubble_size', 0), "mm"),
+            ("流速", foam_features.get('flow_velocity', [0, 0])[0], "cm/s"),
+            ("纹理", foam_features.get('texture_feature', 0), ""),
+            ("稳定性", foam_features.get('stability', 0), "%"),
+            ("浓度", foam_features.get('concentration', 0), "g/L")
+        ]
+
+        for row, (_, value, unit) in enumerate(data_mapping):
+            self.realtime_table.setItem(row, 1, QTableWidgetItem(f"{value:.2f}"))
+            self.realtime_table.setItem(row, 2, QTableWidgetItem(unit))
+
+    def update_prediction_display(self, process_data):
+        """更新预测显示（优化版）"""
+        grade = process_data.get('grade_prediction', 0)
+        recovery = process_data.get('recovery_prediction', 0)
+
+        # 更新数值显示
+        grade_label = self.findChild(QLabel, "grade_prediction_value")
+        recovery_label = self.findChild(QLabel, "recovery_prediction_value")
+
+        if grade_label:
+            grade_label.setText(f"{grade:.1f}")
+        if recovery_label:
+            recovery_label.setText(f"{recovery:.1f}")
+
+        # 更新进度条
+        grade_progress = self.findChild(QProgressBar, "grade_prediction_progress")
+        recovery_progress = self.findChild(QProgressBar, "recovery_prediction_progress")
+
+        if grade_progress:
+            grade_progress.setValue(int(grade))
+        if recovery_progress:
+            recovery_progress.setValue(int(recovery))
+
+    # 6. 事件处理方法
+    def on_charts_toggled(self, checked, group_box=None):
+        """图表区域折叠/展开事件 - 完整修复版本"""
+        try:
+            # 确保有正确的group_box引用
+            if group_box is None:
+                group_box = self.sender()
+
+            if group_box and hasattr(self, 'charts_container'):
+                self.charts_container.setVisible(checked)
+
+                # 更新标题
+                if checked:
+                    group_box.setTitle("特征参数趋势 ▲")
+                else:
+                    group_box.setTitle("特征参数趋势 ▼")
+
+        except Exception as e:
+            print(f"切换图表显示时出错: {e}")
+
     def on_auto_mode_selected(self):
         """自动模式选择"""
         try:
@@ -716,3 +930,58 @@ class FoamMonitoringSystem(QMainWindow):
                 self.status_label.setText("控制模式: 手动")
         except Exception as e:
             print(f"选择手动模式时出错: {e}")
+
+    # 7. 数据获取方法（静态方法）
+    @staticmethod
+    def get_foam_features():
+        """模拟获取泡沫特征数据"""
+        return {
+            'bubble_size': np.random.uniform(5, 15),
+            'flow_velocity': [np.random.uniform(-0.1, 0.1), np.random.uniform(-0.1, 0.1)],
+            'texture_feature': np.random.uniform(0, 1)
+        }
+
+    @staticmethod
+    def get_process_data():
+        """模拟获取工艺过程数据"""
+        return {
+            'current_level': np.random.uniform(1.1, 1.3),
+            'current_dosing': np.random.uniform(45, 55),
+            'grade_prediction': np.random.uniform(85, 95),
+            'recovery_prediction': np.random.uniform(88, 92)
+        }
+
+    # 8. 图表相关方法
+    def setup_chart_curves(self):
+        """初始化图表曲线对象"""
+        try:
+            # 创建主图表
+            self.main_plot = self.graphics_widget.ci.addPlot(title="实时特征参数")
+            self.main_plot.showGrid(x=True, y=True, alpha=0.3)
+
+            # 初始化三条曲线
+            self.bubble_curve = self.main_plot.plot(
+                pen=pg.mkPen(color='y', width=2),
+                name="气泡大小"
+            )
+            self.flow_curve = self.main_plot.plot(
+                pen=pg.mkPen(color='b', width=2),
+                name="流速"
+            )
+            self.texture_curve = self.main_plot.plot(
+                pen=pg.mkPen(color='g', width=2),
+                name="纹理"
+            )
+
+            # 添加图例
+            self.main_plot.addLegend()
+
+            # 设置Y轴范围
+            self.main_plot.setYRange(-1.5, 1.5)
+
+        except Exception as e:
+            print(f"初始化图表曲线时出错: {e}")
+            # 创建备用曲线对象
+            self.bubble_curve = None
+            self.flow_curve = None
+            self.texture_curve = None
