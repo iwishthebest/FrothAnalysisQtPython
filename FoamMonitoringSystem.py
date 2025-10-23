@@ -94,7 +94,7 @@ class FoamMonitoringSystem(QMainWindow):
 
         # Window
         self.setWindowTitle("铅浮选过程工况智能监测与控制系统")
-        self.setGeometry(50, 50, 1600, 900)
+        self.setGeometry(0, 0, 1600, 900)
         self.setWindowIcon(QIcon("src/icon.png"))
 
         # 中央部件
@@ -243,7 +243,7 @@ class FoamMonitoringSystem(QMainWindow):
         # 选项卡4: 系统设置
         self.setup_settings_tab(right_widget)
 
-        main_layout.addWidget(right_widget, 30)  # 调整为35%宽度
+        main_layout.addWidget(right_widget, 30)  # 30%宽度
 
     def setup_monitoring_tab(self, tab_widget):
         """实时监测选项卡 - 优化布局版本"""
