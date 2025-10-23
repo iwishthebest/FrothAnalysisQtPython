@@ -3,7 +3,8 @@ from PySide6.QtWidgets import (QMainWindow, QWidget, QLabel, QPushButton,
                                QVBoxLayout, QHBoxLayout, QGridLayout,
                                QTabWidget, QGroupBox, QComboBox, QSpinBox,
                                QDoubleSpinBox, QTableWidget, QStatusBar, QTextEdit,
-                               QScrollArea, QTableWidgetItem, QProgressBar)
+                               QScrollArea, QTableWidgetItem, QProgressBar,
+                               QSpacerItem, QSizePolicy)
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QFont, QPixmap, QImage, QIcon, QKeyEvent
 import pyqtgraph as pg
@@ -196,9 +197,6 @@ class FoamMonitoringSystem(QMainWindow):
 
             # 创建视频显示标签
             video_label = QLabel()
-            video_label.setFixedSize(300, 225)  # 调整尺寸以适应四宫格布局
-            video_label.setStyleSheet(
-                "border: 2px solid gray; background-color: black;")
             video_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
             # 设置属性以便 QSS 选择器识别
             video_label.setProperty("videoLabel", "true")
@@ -207,8 +205,14 @@ class FoamMonitoringSystem(QMainWindow):
             status_label = QLabel("相机连接中...")
             status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
+            # 将 status_label 设置为 video_label 的子部件
+            video_label.setLayout(QVBoxLayout())
+            video_label.layout().addWidget(status_label)
+
+            # 将 video_label 添加到 foam_group_layout 中
             foam_group_layout.addWidget(video_label)
-            foam_group_layout.addWidget(status_label)
+            # 设置布局的伸缩因子
+            foam_group_layout.setStretchFactor(video_label, 10)  # 视频标签占据100%的高度
 
             # 存储视频标签和状态标签的引用
             self.video_labels.append({
@@ -239,7 +243,7 @@ class FoamMonitoringSystem(QMainWindow):
         # 选项卡4: 系统设置
         self.setup_settings_tab(right_widget)
 
-        main_layout.addWidget(right_widget, 35)  # 调整为35%宽度
+        main_layout.addWidget(right_widget, 30)  # 调整为35%宽度
 
     def setup_monitoring_tab(self, tab_widget):
         """实时监测选项卡 - 优化布局版本"""
@@ -867,12 +871,21 @@ class FoamMonitoringSystem(QMainWindow):
                     qt_image = QImage(rgb_image.data, w, h, bytes_per_line,
                                       QImage.Format.Format_RGB888)
 
+                    # 获取标签实际大小
+                    label_width = foam_info['video_label'].width()
+                    label_height = foam_info['video_label'].height()
+
                     # 缩放图像以适应标签大小
                     scaled_pixmap = QPixmap.fromImage(qt_image).scaled(
-                        foam_info['video_label'].width(),
-                        foam_info['video_label'].height(),
+                        label_width,
+                        label_height,
                         Qt.AspectRatioMode.KeepAspectRatio
                     )
+
+                    # 设置标签的固定大小
+                    foam_info['video_label'].setFixedSize(label_width, label_height)
+
+                    # 设置标签的内容
                     foam_info['video_label'].setPixmap(scaled_pixmap)
                     foam_info['status_label'].setText("正常")
                 else:
