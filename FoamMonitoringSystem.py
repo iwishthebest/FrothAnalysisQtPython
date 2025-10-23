@@ -19,21 +19,23 @@ class FoamMonitoringSystem(QMainWindow):
     # 1.初始化与核心设置方法
     def __init__(self):
         super().__init__()
-        # 添加日志管理器
-        self.flow_curve = None
-        self.bubble_curve = None
-        self.main_plot = None
-        self.realtime_table = None
+        # ==================== 核心组件变量 ====================
+        # 日志管理器
+        self.logger = SystemLogger()
+
+        # ==================== 界面组件变量 ====================
+        # 1. 主界面布局组件
         self.graphics_widget = None
         self.charts_container = None
-        self.logger = SystemLogger()
-        # 存储各选项卡的日志文本框
-        self.log_texts = {}  # 新增：统一管理所有日志文本框
+        self.main_plot = None
+        self.realtime_table = None
 
-        # 视频监控相关变量
-        self.video_labels = []  # 存储四个相机预览标签
+        # 2. 图表曲线对象
+        self.flow_curve = None
+        self.bubble_curve = None
+        self.texture_curve = None
 
-        # 图表显示相关变量
+        # 3. 子图表组件（备用/扩展）
         self.bubble_size_plot = None
         self.bubble_size_curve = None
         self.flow_velocity_plot = None
@@ -41,36 +43,54 @@ class FoamMonitoringSystem(QMainWindow):
         self.texture_plot = None
         self.texture_curve = None
 
-        # 控制参数相关变量
-        self.level_setpoint = None
-        self.current_level_label = None
-        self.dosing_setpoint = None
-        self.current_dosing_label = None
-        self.reagent_combo = None
-        self.auto_mode_btn = None
-        self.manual_mode_btn = None
+        # ==================== 数据管理变量 ====================
+        # 1. 实时数据存储
+        self.realtime_table = None
+        self.history_table = None  # 历史数据表格
 
-        # 状态显示相关变量
+        # 2. 日志文本管理
+        self.log_texts = {}  # 各选项卡日志文本框
+
+        # ==================== 监控模块变量 ====================
+        # 1. 视频监控
+        self.video_labels = []  # 四个相机预览标签
+
+        # 2. 工况状态显示
         self.condition_indicator = None
         self.condition_label = None
         self.grade_label = None
         self.recovery_label = None
+
+        # ==================== 控制模块变量 ====================
+        # 1. 液位控制
+        self.level_setpoint = None
+        self.current_level_label = None
+
+        # 2. 加药量控制
+        self.dosing_setpoint = None
+        self.current_dosing_label = None
+        self.reagent_combo = None
+
+        # 3. 控制模式
+        self.auto_mode_btn = None
+        self.manual_mode_btn = None
+
+        # ==================== 系统状态变量 ====================
+        # 状态栏组件
         self.status_label = None
         self.time_label = None
         self.connection_label = None
 
-        # 定时器相关变量
-        self.data_timer = None
-        self.status_timer = None
-        self.video_timer = None
-        self.logger_timer = None
+        # ==================== 定时器变量 ====================
+        self.data_timer = None  # 数据更新定时器
+        self.status_timer = None  # 状态更新定时器
+        self.video_timer = None  # 视频更新定时器
+        self.logger_timer = None  # 日志更新定时器
 
-        # 历史数据相关变量
-        self.history_table = None
+        # ==================== 系统设置变量 ====================
+        self.resolution_combo = None  # 分辨率设置
+        self.save_interval = None  # 保存间隔
 
-        # 系统设置相关变量
-        self.resolution_combo = None
-        self.save_interval = None
         # Window
         self.setWindowTitle("铅浮选过程工况智能监测与控制系统")
         self.setGeometry(50, 50, 1600, 900)
@@ -83,7 +103,7 @@ class FoamMonitoringSystem(QMainWindow):
         # 主布局
         main_layout = QHBoxLayout(central_widget)
 
-        # 左侧四相机预览区域
+        # 左侧四个相机预览区域
         self.setup_camera_previews(main_layout)
 
         # 右侧控制面板区域
@@ -177,7 +197,8 @@ class FoamMonitoringSystem(QMainWindow):
             # 创建视频显示标签
             video_label = QLabel()
             video_label.setFixedSize(300, 225)  # 调整尺寸以适应四宫格布局
-            video_label.setStyleSheet("border: 2px solid gray; background-color: black;")
+            video_label.setStyleSheet(
+                "border: 2px solid gray; background-color: black;")
             video_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
             # 设置属性以便 QSS 选择器识别
             video_label.setProperty("videoLabel", "true")
@@ -328,7 +349,8 @@ class FoamMonitoringSystem(QMainWindow):
             ])
             # 设置表格属性
             self.history_table.setAlternatingRowColors(True)
-            self.history_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+            self.history_table.setSelectionBehavior(
+                QTableWidget.SelectionBehavior.SelectRows)
             self.history_table.setMaximumHeight(400)
 
             table_layout.addWidget(self.history_table)
@@ -356,7 +378,8 @@ class FoamMonitoringSystem(QMainWindow):
             camera_layout = QHBoxLayout()
             camera_layout.addWidget(QLabel("相机分辨率:"))
             self.resolution_combo = QComboBox()
-            self.resolution_combo.addItems(["640x480", "1280x720", "1920x1080"])
+            self.resolution_combo.addItems(
+                ["640x480", "1280x720", "1920x1080"])
             camera_layout.addWidget(self.resolution_combo)
             camera_layout.addStretch()
             settings_layout.addLayout(camera_layout)
@@ -419,7 +442,8 @@ class FoamMonitoringSystem(QMainWindow):
         status_layout.setContentsMargins(0, 0, 0, 0)
 
         self.condition_label = QLabel("正常工况")
-        self.condition_label.setFont(QFont("Microsoft YaHei", 12, QFont.Weight.Bold))
+        self.condition_label.setFont(
+            QFont("Microsoft YaHei", 12, QFont.Weight.Bold))
         self.condition_label.setStyleSheet("color: #2c3e50;")
 
         # 指标显示
@@ -459,8 +483,10 @@ class FoamMonitoringSystem(QMainWindow):
         layout.setContentsMargins(12, 8, 12, 8)
 
         # 创建两个预测项
-        grade_item = self.create_prediction_item(self, "铅品位预测", "grade", "%", "#e74c3c")
-        recovery_item = self.create_prediction_item(self, "回收率预测", "recovery", "%", "#3498db")
+        grade_item = self.create_prediction_item(
+            "铅品位预测", "grade", "%", "#e74c3c")
+        recovery_item = self.create_prediction_item(
+            "回收率预测", "recovery", "%", "#3498db")
 
         layout.addWidget(grade_item)
         layout.addWidget(recovery_item)
@@ -473,7 +499,8 @@ class FoamMonitoringSystem(QMainWindow):
         widget = QGroupBox("特征参数趋势")
         widget.setCheckable(True)
         widget.setChecked(False)
-        widget.toggled.connect(lambda checked: self.on_charts_toggled(checked, widget))
+        widget.toggled.connect(
+            lambda checked: self.on_charts_toggled(checked, widget))
 
         layout = QVBoxLayout(widget)
         layout.setContentsMargins(8, 12, 8, 8)
@@ -483,43 +510,36 @@ class FoamMonitoringSystem(QMainWindow):
         charts_layout = QVBoxLayout(self.charts_container)
         charts_layout.setContentsMargins(2, 2, 2, 2)
 
-        try:
-            self.graphics_widget = pg.GraphicsLayoutWidget()
-            self.graphics_widget.setMaximumHeight(200)
-            self.graphics_widget.setMinimumHeight(150)
+        self.graphics_widget = pg.GraphicsLayoutWidget()
+        self.graphics_widget.setMaximumHeight(200)
+        self.graphics_widget.setMinimumHeight(150)
 
-            # 创建图表
-            plot = self.graphics_widget.ci.addPlot(title="实时特征参数")
-            plot.showGrid(x=True, y=True, alpha=0.3)
-            plot.setLabel('left', '特征值')
-            plot.setLabel('bottom', '时间', 's')
+        # 创建图表
+        plot = self.graphics_widget.ci.addPlot(title="实时特征参数")
+        plot.showGrid(x=True, y=True, alpha=0.3)
+        plot.setLabel('left', '特征值')
+        plot.setLabel('bottom', '时间', 's')
 
-            # 设置颜色主题
-            plot.getAxis('left').setPen(pg.mkPen(color='#2c3e50', width=1))
-            plot.getAxis('bottom').setPen(pg.mkPen(color='#2c3e50', width=1))
+        # 设置颜色主题
+        plot.getAxis('left').setPen(pg.mkPen(color='#2c3e50', width=1))
+        plot.getAxis('bottom').setPen(pg.mkPen(color='#2c3e50', width=1))
 
-            # 初始化曲线
-            self.bubble_curve = plot.plot(
-                pen=pg.mkPen(color='#e67e22', width=2),
-                name="气泡大小"
-            )
-            self.flow_curve = plot.plot(
-                pen=pg.mkPen(color='#3498db', width=2),
-                name="流速"
-            )
-            self.texture_curve = plot.plot(
-                pen=pg.mkPen(color='#27ae60', width=2),
-                name="纹理"
-            )
+        # 初始化曲线
+        self.bubble_curve = plot.plot(
+            pen=pg.mkPen(color='#e67e22', width=2),
+            name="气泡大小"
+        )
+        self.flow_curve = plot.plot(
+            pen=pg.mkPen(color='#3498db', width=2),
+            name="流速"
+        )
+        self.texture_curve = plot.plot(
+            pen=pg.mkPen(color='#27ae60', width=2),
+            name="纹理"
+        )
 
-            plot.addLegend(offset=(-10, 10))
-            charts_layout.addWidget(self.graphics_widget)
-
-        except Exception as e:
-            error_label = QLabel("图表初始化失败")
-            error_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            error_label.setStyleSheet("color: #e74c3c; padding: 20px;")
-            charts_layout.addWidget(error_label)
+        plot.addLegend(offset=(-10, 10))
+        charts_layout.addWidget(self.graphics_widget)
 
         layout.addWidget(self.charts_container)
         self.charts_container.setVisible(False)
@@ -699,7 +719,7 @@ class FoamMonitoringSystem(QMainWindow):
             print(f"设置控制模式时出错: {e}")
 
     @staticmethod
-    def create_prediction_item(self, title, key, unit, color):
+    def create_prediction_item(title, key, unit, color):
         """创建单个预测项 - 优化版本"""
         widget = QWidget()
         layout = QVBoxLayout(widget)
@@ -934,7 +954,8 @@ class FoamMonitoringSystem(QMainWindow):
             current_dosing = process_data.get('current_dosing', 0)
 
             self.current_level_label.setText(f"当前: {current_level:.2f} m")
-            self.current_dosing_label.setText(f"当前: {current_dosing:.1f} ml/min")
+            self.current_dosing_label.setText(
+                f"当前: {current_dosing:.1f} ml/min")
 
         except Exception as e:
             print(f"更新控制显示时出错: {e}")
@@ -951,7 +972,8 @@ class FoamMonitoringSystem(QMainWindow):
         ]
 
         for row, (_, value, unit) in enumerate(data_mapping):
-            self.realtime_table.setItem(row, 1, QTableWidgetItem(f"{value:.2f}"))
+            self.realtime_table.setItem(
+                row, 1, QTableWidgetItem(f"{value:.2f}"))
             self.realtime_table.setItem(row, 2, QTableWidgetItem(unit))
 
     def update_prediction_display(self, process_data):
@@ -969,8 +991,10 @@ class FoamMonitoringSystem(QMainWindow):
             recovery_label.setText(f"{recovery:.1f}")
 
         # 更新进度条
-        grade_progress = self.findChild(QProgressBar, "grade_prediction_progress")
-        recovery_progress = self.findChild(QProgressBar, "recovery_prediction_progress")
+        grade_progress = self.findChild(
+            QProgressBar, "grade_prediction_progress")
+        recovery_progress = self.findChild(
+            QProgressBar, "recovery_prediction_progress")
 
         if grade_progress:
             grade_progress.setValue(int(grade))
