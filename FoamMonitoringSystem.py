@@ -94,7 +94,7 @@ class FoamMonitoringSystem(QMainWindow):
 
         # Window
         self.setWindowTitle("铅浮选过程工况智能监测与控制系统")
-        self.setGeometry(0, 0, 1600, 900)
+        self.setGeometry(0, 0, 1920, 1000)
         self.setWindowIcon(QIcon("src/icon.png"))
 
         # 中央部件
