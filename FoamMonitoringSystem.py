@@ -12,7 +12,7 @@ import cv2
 from datetime import datetime
 # 自定义模块，存放路径./utils
 from utils.system_logger import SystemLogger
-from utils.capture_frame import capture_frame
+from utils.capture_frame import capture_frame_simulate, capture_frame_real
 
 
 class FoamMonitoringSystem(QMainWindow):
@@ -862,7 +862,7 @@ class FoamMonitoringSystem(QMainWindow):
         for i, foam_info in enumerate(self.video_labels):
             try:
                 # 模拟从不同泡沫相机获取视频帧
-                ret, frame = capture_frame(i)
+                ret, frame = capture_frame_simulate(i) if i!=0 else capture_frame_real(i)
                 if ret:
                     # 转换为Qt图像格式
                     rgb_image = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)

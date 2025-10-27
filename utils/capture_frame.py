@@ -1,7 +1,38 @@
+import time
 import numpy as np
 import cv2
 
-def capture_frame(camera_index):
+
+def connect_camera(rtsp_url):
+    # 不使用 CAP_PROP_RTSP_TRANSPORT，通过 URL 参数指定 TCP
+    cap = cv2.VideoCapture(rtsp_url, cv2.CAP_FFMPEG)
+    # 限制缓冲大小（旧版本也支持此属性）
+    cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+    return cap
+
+
+def capture_frame_real(i):
+    rtsp_url = "rtsp://admin:fkqxk010@192.168.1.101:554/Streaming/Channels/101?tcp"
+
+    cap = connect_camera(rtsp_url)
+    while True:
+        ret, frame = cap.read()
+        if not ret:
+            print("连接中断，尝试重新连接...")
+            cap.release()
+            time.sleep(2)
+            cap = connect_camera(rtsp_url)
+            if not cap.isOpened():
+                print("重连失败，1秒后重试...")
+                time.sleep(1)
+                continue
+            print("重连成功！")
+            continue
+        # 返回成功标志和帧数据
+        return True, frame
+
+
+def capture_frame_simulate(camera_index):
     """模拟视频帧捕获 - 根据相机索引生成不同的泡沫图像"""
     try:
         width, height = 640, 480
@@ -61,4 +92,3 @@ def capture_frame(camera_index):
     except Exception as e:
         print(f"捕获相机 {camera_index} 视频帧时出错: {e}")
         return False, None
-
