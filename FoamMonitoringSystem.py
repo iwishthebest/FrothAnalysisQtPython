@@ -1,4 +1,5 @@
 import numpy as np
+import requests
 from PySide6.QtWidgets import (QMainWindow, QWidget, QLabel, QPushButton,
                                QVBoxLayout, QHBoxLayout, QGridLayout,
                                QTabWidget, QGroupBox, QComboBox, QSpinBox,
@@ -437,7 +438,9 @@ class FoamMonitoringSystem(QMainWindow):
 
         # 指示灯 - 优化样式
         self.condition_indicator = QLabel()
-        self.condition_indicator.setFixedSize(50, 50)
+        self.condition_indicator.setFixedSize(25, 25)
+        self.condition_indicator.setStyleSheet("background-color: green; border-radius: 4px;")
+        self.condition_indicator.setProperty("conditionIndicator", "true")
 
         # 状态信息区域
         status_widget = QWidget()
@@ -602,29 +605,6 @@ class FoamMonitoringSystem(QMainWindow):
         self.texture_plot.setMaximumHeight(80)
 
         return graphics_widget
-
-    def setup_condition_monitoring(self, layout):
-        """工况状态监控 - 紧凑布局"""
-        condition_group = QGroupBox("工况状态")
-        condition_layout = QHBoxLayout(condition_group)
-        condition_group.setMaximumHeight(100)  # 限制高度
-
-        # 工况指示灯
-        self.condition_indicator = QLabel()
-        self.condition_indicator.setFixedSize(80, 80)  # 缩小指示灯
-        self.condition_indicator.setStyleSheet(
-            "background-color: green; border-radius: 40px;")
-        self.condition_indicator.setProperty("conditionIndicator", "true")
-
-        # 工况描述
-        self.condition_label = QLabel("正常工况")
-        self.condition_label.setFont(QFont("Arial", 14, QFont.Weight.Bold))
-
-        condition_layout.addWidget(self.condition_indicator)
-        condition_layout.addWidget(self.condition_label)
-        condition_layout.addStretch()
-
-        layout.addWidget(condition_group)
 
     def setup_prediction_display(self, layout):
         """预测结果显示 - 紧凑布局"""
@@ -862,7 +842,7 @@ class FoamMonitoringSystem(QMainWindow):
         for i, foam_info in enumerate(self.video_labels):
             try:
                 # 模拟从不同泡沫相机获取视频帧
-                ret, frame = capture_frame_simulate(i) if i!=0 else capture_frame_real(i)
+                ret, frame = capture_frame_simulate(i) if i != 0 else capture_frame_real(i)
                 if ret:
                     # 转换为Qt图像格式
                     rgb_image = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
@@ -967,8 +947,7 @@ class FoamMonitoringSystem(QMainWindow):
             current_dosing = process_data.get('current_dosing', 0)
 
             self.current_level_label.setText(f"当前: {current_level:.2f} m")
-            self.current_dosing_label.setText(
-                f"当前: {current_dosing:.1f} ml/min")
+            self.current_dosing_label.setText(f"当前: {current_dosing:.1f} ml/min")
 
         except Exception as e:
             print(f"更新控制显示时出错: {e}")
@@ -1065,11 +1044,34 @@ class FoamMonitoringSystem(QMainWindow):
     @staticmethod
     def get_process_data():
         """模拟获取工艺过程数据"""
+        url = "http://10.12.18.2:8081/open/realdata/snapshot/batchGet"
+        tag_list = ["KYFX.kyfx_gqxk_grade_Pb", "KYFX.kyfx_gqxk_grade_Zn"]
+        tag_param = ",".join(tag_list)
+        grade_pb = -1
+        grade_zn = -1
+        try:
+            params = {"tagNameList": tag_param}
+            response = requests.get(url=url, params=params, timeout=10)
+            if response.status_code == 200:
+                data = response.json()
+                records = []
+                for item in data.get("data", []):
+                    tag_name = item['TagName'].strip()
+                    value = item['Value']
+                    records.append((tag_name, value))
+                grade_pb = int(records[0][1])
+                grade_zn = int(records[1][1])
+            else:
+                print(f"请求失败，状态码：{response.status_code}")
+                return False
+        except Exception as e:
+            print(f"采集异常：{e}")
+            return False
         return {
             'current_level': np.random.uniform(1.1, 1.3),
             'current_dosing': np.random.uniform(45, 55),
-            'grade_prediction': np.random.uniform(85, 95),
-            'recovery_prediction': np.random.uniform(88, 92)
+            'grade_prediction': grade_pb,
+            'recovery_prediction': grade_zn
         }
 
     # 8. 图表相关方法
