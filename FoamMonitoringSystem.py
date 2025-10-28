@@ -235,7 +235,7 @@ class FoamMonitoringSystem(QMainWindow):
         # 选项卡1: 实时监测
         self.setup_monitoring_tab(right_widget)
 
-        # 选项卡2: 实时监测
+        # 选项卡2: 控制参数
         self.setup_control_tab(right_widget)
 
         # 选项卡3: 历史数据
@@ -250,14 +250,14 @@ class FoamMonitoringSystem(QMainWindow):
         """实时监测选项卡 - 优化布局版本"""
         monitor_tab = QWidget()
         main_layout = QVBoxLayout(monitor_tab)
-        main_layout.setSpacing(8)  # 减少布局间距
-        main_layout.setContentsMargins(8, 8, 8, 8)  # 设置边距
+        main_layout.setSpacing(12)
+        main_layout.setContentsMargins(12, 12, 12, 12)  # 设置边距
 
         # 创建滚动区域容器
         scroll_content = QWidget()
         scroll_layout = QVBoxLayout(scroll_content)
-        scroll_layout.setSpacing(6)  # 减少内部间距
-        scroll_layout.setContentsMargins(4, 4, 4, 4)
+        scroll_layout.setSpacing(10)  # 减少内部间距
+        scroll_layout.setContentsMargins(8, 8, 8, 8)
 
         # 1. 工况状态区域 - 优化布局
         condition_widget = self.create_condition_section()
@@ -281,7 +281,7 @@ class FoamMonitoringSystem(QMainWindow):
         scroll_area = QScrollArea()
         scroll_area.setWidget(scroll_content)
         scroll_area.setWidgetResizable(True)
-        scroll_area.setMaximumHeight(450)  # 调整高度
+        scroll_area.setMaximumHeight(600)  # 调整高度
         scroll_area.setFrameShape(QScrollArea.Shape.NoFrame)  # 去除边框
 
         main_layout.addWidget(scroll_area)
@@ -433,30 +433,29 @@ class FoamMonitoringSystem(QMainWindow):
         widget = QGroupBox("工况状态监控")
         widget.setMaximumHeight(90)  # 限制高度
         layout = QHBoxLayout(widget)
-        layout.setSpacing(12)
-        layout.setContentsMargins(12, 8, 12, 8)
+        layout.setSpacing(16)
+        layout.setContentsMargins(16, 12, 16, 12)
 
         # 指示灯 - 优化样式
         self.condition_indicator = QLabel()
-        self.condition_indicator.setFixedSize(25, 25)
-        self.condition_indicator.setStyleSheet("background-color: green; border-radius: 4px;")
+        self.condition_indicator.setFixedSize(30, 30)
+        self.condition_indicator.setStyleSheet("background-color: green; border-radius: 5px;")
         self.condition_indicator.setProperty("conditionIndicator", "true")
 
         # 状态信息区域
         status_widget = QWidget()
         status_layout = QVBoxLayout(status_widget)
-        status_layout.setSpacing(4)
+        status_layout.setSpacing(8)
         status_layout.setContentsMargins(0, 0, 0, 0)
 
         self.condition_label = QLabel("正常工况")
-        self.condition_label.setFont(
-            QFont("Microsoft YaHei", 12, QFont.Weight.Bold))
+        self.condition_label.setFont(QFont("Microsoft YaHei", 14, QFont.Weight.Bold))
         self.condition_label.setStyleSheet("color: #2c3e50;")
 
         # 指标显示
         indicators_widget = QWidget()
         indicators_layout = QHBoxLayout(indicators_widget)
-        indicators_layout.setSpacing(20)
+        indicators_layout.setSpacing(24)
         indicators_layout.setContentsMargins(0, 0, 0, 0)
 
         self.grade_label = QLabel("铅品位: --%")
@@ -464,7 +463,7 @@ class FoamMonitoringSystem(QMainWindow):
 
         # 设置指标样式
         for label in [self.grade_label, self.recovery_label]:
-            label.setFont(QFont("Microsoft YaHei", 10))
+            label.setFont(QFont("Microsoft YaHei", 12))
             label.setStyleSheet("color: #34495e;")
 
         indicators_layout.addWidget(self.grade_label)
@@ -475,7 +474,7 @@ class FoamMonitoringSystem(QMainWindow):
         status_layout.addWidget(indicators_widget)
 
         layout.addWidget(self.condition_indicator)
-        layout.addSpacing(10)  # 添加间距
+        layout.addSpacing(16)  # 添加间距
         layout.addWidget(status_widget)
         layout.addStretch()
 
@@ -484,10 +483,10 @@ class FoamMonitoringSystem(QMainWindow):
     def create_prediction_section(self):
         """创建关键指标预测区域 - 优化版本"""
         widget = QGroupBox("关键指标预测")
-        widget.setMaximumHeight(80)
+        widget.setMaximumHeight(100)
         layout = QHBoxLayout(widget)
-        layout.setSpacing(15)
-        layout.setContentsMargins(12, 8, 12, 8)
+        layout.setSpacing(20)
+        layout.setContentsMargins(16, 12, 16, 12)
 
         # 创建两个预测项
         grade_item = self.create_prediction_item(
@@ -510,12 +509,12 @@ class FoamMonitoringSystem(QMainWindow):
             lambda checked: self.on_charts_toggled(checked, widget))
 
         layout = QVBoxLayout(widget)
-        layout.setContentsMargins(8, 12, 8, 8)
+        layout.setContentsMargins(16, 12, 16, 12)
 
         # 图表容器
         self.charts_container = QWidget()
         charts_layout = QVBoxLayout(self.charts_container)
-        charts_layout.setContentsMargins(2, 2, 2, 2)
+        charts_layout.setContentsMargins(4, 4, 4, 4)
 
         self.graphics_widget = pg.GraphicsLayoutWidget()
         self.graphics_widget.setMaximumHeight(200)
@@ -558,7 +557,7 @@ class FoamMonitoringSystem(QMainWindow):
         widget = QGroupBox("实时数据")
         widget.setMaximumHeight(200)
         layout = QVBoxLayout(widget)
-        layout.setContentsMargins(6, 10, 6, 8)
+        layout.setContentsMargins(12, 16, 12, 16)
 
         # 创建紧凑型表格
         table = QTableWidget(6, 3)
@@ -575,8 +574,8 @@ class FoamMonitoringSystem(QMainWindow):
         table.setMinimumHeight(140)
 
         # 设置列宽
-        table.setColumnWidth(0, 100)
-        table.setColumnWidth(1, 80)
+        table.setColumnWidth(0, 120)
+        table.setColumnWidth(1, 100)
 
         layout.addWidget(table)
         self.realtime_table = table
