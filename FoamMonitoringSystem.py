@@ -61,6 +61,10 @@ class FoamMonitoringSystem(QMainWindow):
         self.grade_label = None
         self.recovery_label = None
 
+        self.value_label = None
+        self.title_label = None
+        self.unit_label = None
+
         # ==================== 控制模块变量 ====================
         # 1. 液位控制
         self.level_setpoint = None
@@ -131,9 +135,9 @@ class FoamMonitoringSystem(QMainWindow):
             super().keyPressEvent(event)  # 其他按键按默认方式处理
 
     def load_stylesheet(self):
-        """加载科技风样式表"""
+        """加载样式表"""
         try:
-            with open("styles/tech_style.qss", "r", encoding="utf-8") as f:
+            with open("styles/diy.qss", "r", encoding="utf-8") as f:
                 stylesheet = f.read()
                 self.setStyleSheet(stylesheet)
         except FileNotFoundError:
@@ -406,7 +410,7 @@ class FoamMonitoringSystem(QMainWindow):
 
             tab_widget.addTab(settings_tab, "系统设置")
         except Exception as e:
-            print(f"设置系统设置选项卡时出错: {e}")
+            self.logger.add_log("monitoring", f"设置系统设置选项卡时出错: {e}", "ERROR")
 
     def setup_status_bar(self):
         """设置状态栏"""
@@ -697,10 +701,9 @@ class FoamMonitoringSystem(QMainWindow):
             layout.addLayout(mode_layout)
 
         except Exception as e:
-            print(f"设置控制模式时出错: {e}")
+            self.logger.add_log("monitoring", f"选择自动模式时出错: {e}", "ERROR")
 
-    @staticmethod
-    def create_prediction_item(title, key, unit, color):
+    def create_prediction_item(self, title, key, unit, color):
         """创建单个预测项 - 优化版本"""
         widget = QWidget()
         layout = QVBoxLayout(widget)
@@ -709,25 +712,25 @@ class FoamMonitoringSystem(QMainWindow):
 
         # 标题区域
         title_layout = QHBoxLayout()
-        title_label = QLabel(title)
-        title_label.setFont(QFont("Microsoft YaHei", 9))
-        title_label.setStyleSheet(f"color: {color}; font-weight: bold;")
-        title_layout.addWidget(title_label)
+        self.title_label = QLabel(title)
+        self.title_label.setFont(QFont("Microsoft YaHei", 9))
+        self.title_label.setStyleSheet(f"color: {color}; font-weight: bold;")
+        title_layout.addWidget(self.title_label)
         title_layout.addStretch()
 
         # 数值显示
         value_layout = QHBoxLayout()
-        value_label = QLabel("--")
-        value_label.setObjectName(f"{key}_value")
-        value_label.setFont(QFont("Microsoft YaHei", 14, QFont.Weight.Bold))
-        value_label.setStyleSheet(f"color: {color};")
+        self.value_label = QLabel("--")
+        self.value_label.setObjectName(f"{key}_value")
+        self.value_label.setFont(QFont("Microsoft YaHei", 14, QFont.Weight.Bold))
+        self.value_label.setStyleSheet(f"color: {color};")
 
-        unit_label = QLabel(unit)
-        unit_label.setFont(QFont("Microsoft YaHei", 10))
-        unit_label.setStyleSheet("color: #7f8c8d;")
+        self.unit_label = QLabel(unit)
+        self.unit_label.setFont(QFont("Microsoft YaHei", 10))
+        self.unit_label.setStyleSheet("color: #7f8c8d;")
 
-        value_layout.addWidget(value_label)
-        value_layout.addWidget(unit_label)
+        value_layout.addWidget(self.value_label)
+        value_layout.addWidget(self.unit_label)
         value_layout.addStretch()
 
         # 进度条
@@ -815,7 +818,7 @@ class FoamMonitoringSystem(QMainWindow):
                 if log_text is not None:
                     self.update_log_display(log_text, category)
         except Exception as e:
-            print(f"更新日志显示时出错: {e}")
+            self.logger.add_log("monitoring", f"更新日志显示时出错: {e}", "ERROR")
 
     def clear_logs(self, category, log_text):
         """清空日志"""
@@ -865,32 +868,43 @@ class FoamMonitoringSystem(QMainWindow):
                     # 设置标签的内容
                     foam_info['video_label'].setPixmap(scaled_pixmap)
                     foam_info['status_label'].setText("正常")
+                    self.logger.add_log("monitoring", f"相机 {i} 帧捕获成功", "INFO")
                 else:
                     foam_info['status_label'].setText("无信号")
+                    self.logger.add_log("monitoring", f"相机 {i} 无信号", "WARNING")
 
             except Exception as e:
-                print(f"更新泡沫相机 {i} 显示时出错: {e}")
                 foam_info['status_label'].setText("错误")
+                self.logger.add_log("monitoring", f"更新泡沫相机 {i} 显示时出错: {e}", "ERROR")
 
     def update_display_data(self):
         """更新显示数据"""
-        # 模拟数据更新 - 实际应用中从模型和传感器获取
-        foam_features = self.get_foam_features()
-        process_data = self.get_process_data()
+        try:
+            # 模拟数据更新 - 实际应用中从模型和传感器获取
+            foam_features = self.get_foam_features()
+            process_data = self.get_process_data()
 
-        # 更新图表
-        self.update_charts(foam_features)
+            # 更新图表
+            self.update_charts(foam_features)
 
-        # 更新预测结果
-        self.update_predictions(process_data)
+            # 更新预测结果
+            self.update_predictions(process_data)
 
-        # 更新控制参数显示
-        self.update_control_display(process_data)
+            # 更新控制参数显示
+            self.update_control_display(process_data)
+
+            self.logger.add_log("monitoring", "显示数据更新成功", "INFO")
+        except Exception as e:
+            self.logger.add_log("monitoring", f"更新显示数据时出错: {e}", "ERROR")
 
     def update_status(self):
         """更新状态信息"""
-        current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        self.time_label.setText(current_time)
+        try:
+            current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            self.time_label.setText(current_time)
+            self.logger.add_log("monitoring", "状态信息更新成功", "INFO")
+        except Exception as e:
+            self.logger.add_log("monitoring", f"更新状态信息时出错: {e}", "ERROR")
 
     def update_charts(self, foam_features):
         """更新图表显示 - 修复版本"""
@@ -899,7 +913,7 @@ class FoamMonitoringSystem(QMainWindow):
             if (self.bubble_curve is None or
                     self.flow_curve is None or
                     self.texture_curve is None):
-                print("图表曲线未初始化，跳过更新")
+                self.logger.add_log("monitoring", f"图表曲线未初始化，跳过更新", "ERROR")
                 return
 
             # 模拟数据更新
@@ -923,7 +937,7 @@ class FoamMonitoringSystem(QMainWindow):
             self.texture_curve.setData(x_data, y_texture)
 
         except Exception as e:
-            print(f"更新图表时出错: {e}")
+            self.logger.add_log("monitoring", f"更新图表时出错: {e}", "ERROR")
 
     def update_predictions(self, process_data):
         """更新预测结果显示"""
@@ -935,7 +949,7 @@ class FoamMonitoringSystem(QMainWindow):
             self.recovery_label.setText(f"回收率: {recovery:.1f}%")
 
         except Exception as e:
-            print(f"更新预测显示时出错: {e}")
+            self.logger.add_log("monitoring", f"更新预测显示时出错: {e}", "ERROR")
 
     def update_control_display(self, process_data):
         """更新控制参数显示"""
@@ -947,7 +961,7 @@ class FoamMonitoringSystem(QMainWindow):
             self.current_dosing_label.setText(f"当前: {current_dosing:.1f} ml/min")
 
         except Exception as e:
-            print(f"更新控制显示时出错: {e}")
+            self.logger.add_log("monitoring", f"更新控制显示时出错: {e}", "ERROR")
 
     def update_realtime_table(self, foam_features):
         """更新实时数据表格"""
@@ -1008,7 +1022,7 @@ class FoamMonitoringSystem(QMainWindow):
                     group_box.setTitle("特征参数趋势 ▼")
 
         except Exception as e:
-            print(f"切换图表显示时出错: {e}")
+            self.logger.add_log("monitoring", f"切换图表显示时出错: {e}", "ERROR")
 
     def on_auto_mode_selected(self):
         """自动模式选择"""
@@ -1017,7 +1031,7 @@ class FoamMonitoringSystem(QMainWindow):
                 self.manual_mode_btn.setChecked(False)
                 self.status_label.setText("控制模式: 自动")
         except Exception as e:
-            print(f"选择自动模式时出错: {e}")
+            self.logger.add_log("monitoring", f"选择自动模式时出错: {e}", "ERROR")
 
     def on_manual_mode_selected(self):
         """手动模式选择"""
@@ -1026,7 +1040,7 @@ class FoamMonitoringSystem(QMainWindow):
                 self.auto_mode_btn.setChecked(False)
                 self.status_label.setText("控制模式: 手动")
         except Exception as e:
-            print(f"选择手动模式时出错: {e}")
+            self.logger.add_log("monitoring", f"选择手动模式时出错: {e}", "ERROR")
 
     # 7. 数据获取方法（静态方法）
     @staticmethod
@@ -1079,7 +1093,7 @@ class FoamMonitoringSystem(QMainWindow):
             self.main_plot.setYRange(-1.5, 1.5)
 
         except Exception as e:
-            print(f"初始化图表曲线时出错: {e}")
+            self.logger.add_log("monitoring", f"初始化图表曲线时出错: {e}", "ERROR")
             # 创建备用曲线对象
             self.bubble_curve = None
             self.flow_curve = None
