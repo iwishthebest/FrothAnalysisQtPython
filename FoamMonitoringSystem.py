@@ -11,7 +11,7 @@ import cv2
 from datetime import datetime
 # 自定义模块，存放路径./utils
 from system_logger import SystemLogger
-from process_data import capture_frame_simulate
+from process_data import capture_frame_simulate,get_process_data
 
 
 class FoamMonitoringSystem(QMainWindow):
@@ -34,14 +34,7 @@ class FoamMonitoringSystem(QMainWindow):
         self.flow_curve = None
         self.bubble_curve = None
         self.texture_curve = None
-
-        # 3. 子图表组件（备用/扩展）
-        self.bubble_size_plot = None
-        self.bubble_size_curve = None
-        self.flow_velocity_plot = None
-        self.flow_velocity_curve = None
-        self.texture_plot = None
-        self.texture_curve = None
+        self.grade_curve = None
 
         # ==================== 数据管理变量 ====================
         # 1. 实时数据存储
@@ -504,7 +497,7 @@ class FoamMonitoringSystem(QMainWindow):
 
     def create_charts_section(self):
         """创建图表区域 - 优化版本"""
-        widget = QGroupBox("特征参数趋势")
+        widget = QGroupBox("铅精品位趋势")
         widget.setCheckable(True)
         widget.setChecked(False)
         widget.toggled.connect(
@@ -523,9 +516,9 @@ class FoamMonitoringSystem(QMainWindow):
         self.graphics_widget.setMinimumHeight(150)
 
         # 创建图表
-        plot = self.graphics_widget.ci.addPlot(title="实时特征参数")
+        plot = self.graphics_widget.ci.addPlot(title="实时品位值")
         plot.showGrid(x=True, y=True, alpha=0.3)
-        plot.setLabel('left', '特征值')
+        plot.setLabel('left', '品位值')
         plot.setLabel('bottom', '时间', 's')
 
         # 设置颜色主题
@@ -544,6 +537,10 @@ class FoamMonitoringSystem(QMainWindow):
         self.texture_curve = plot.plot(
             pen=pg.mkPen(color='#27ae60', width=2),
             name="纹理"
+        )
+        self.grade_curve = plot.plot(
+            pen=pg.mkPen(color='r', width=2),
+            name="品位"
         )
 
         plot.addLegend(offset=(-10, 10))
@@ -583,29 +580,6 @@ class FoamMonitoringSystem(QMainWindow):
         self.realtime_table = table
 
         return widget
-
-    def setup_feature_charts(self):
-        """特征参数图表 - 返回图表部件"""
-        # 创建图表区域
-        graphics_widget = pg.GraphicsLayoutWidget()
-        graphics_widget.setMaximumHeight(250)  # 限制图表高度
-
-        # 气泡大小分布图
-        self.bubble_size_plot = graphics_widget.ci.addPlot(title="气泡大小分布")
-        self.bubble_size_curve = self.bubble_size_plot.plot(pen='y')
-        self.bubble_size_plot.setMaximumHeight(80)
-
-        # 泡沫流速趋势图
-        self.flow_velocity_plot = graphics_widget.ci.addPlot(title="泡沫流速趋势")
-        self.flow_velocity_curve = self.flow_velocity_plot.plot(pen='b')
-        self.flow_velocity_plot.setMaximumHeight(80)
-
-        # 纹理特征图
-        self.texture_plot = graphics_widget.ci.addPlot(title="纹理特征")
-        self.texture_curve = self.texture_plot.plot(pen='g')
-        self.texture_plot.setMaximumHeight(80)
-
-        return graphics_widget
 
     def setup_prediction_display(self, layout):
         """预测结果显示 - 紧凑布局"""
@@ -786,8 +760,8 @@ class FoamMonitoringSystem(QMainWindow):
             btn.setFixedHeight(25)
             btn.setFixedWidth(80)
 
-        clear_btn.clicked.connect(lambda: self.clear_logs(category, log_text))
-        export_btn.clicked.connect(lambda: self.export_logs(category))
+        clear_btn.clicked.connect(lambda: self.clear_logs(category))
+        export_btn.clicked.connect(lambda: self.export_logs())
 
         button_layout.addWidget(clear_btn)
         button_layout.addWidget(export_btn)
@@ -820,15 +794,15 @@ class FoamMonitoringSystem(QMainWindow):
         except Exception as e:
             self.logger.add_log(f"更新日志显示时出错: {e}", "ERROR")
 
-    def clear_logs(self, category, log_text):
+    def clear_logs(self, log_text):
         """清空日志"""
         self.logger.clear_logs()
         self.update_log_display(log_text)
 
-    def export_logs(self, category):
+    def export_logs(self):
         """导出日志到文件"""
         try:
-            filename = f"logs/{category}_log_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
+            filename = f"logs/log_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
             logs = self.logger.get_logs()
             with open(filename, 'w', encoding='utf-8') as f:
                 f.write("\n".join(logs))
@@ -910,31 +884,18 @@ class FoamMonitoringSystem(QMainWindow):
         """更新图表显示 - 修复版本"""
         try:
             # 检查曲线对象是否已初始化
-            if (self.bubble_curve is None or
-                    self.flow_curve is None or
-                    self.texture_curve is None):
+            if self.grade_curve is None:
                 self.logger.add_log(f"图表曲线未初始化，跳过更新", "ERROR")
                 return
 
-            # 模拟数据更新
-            x_data = np.linspace(0, 10, 100)
 
-            # 气泡大小分布
-            bubble_size = foam_features.get('bubble_size', 5)
-            y_bubble = np.sin(x_data + bubble_size * 0.1)
 
-            # 泡沫流速
-            flow_velocity = foam_features.get('flow_velocity', [0, 0])[0]
-            y_flow = np.cos(x_data + flow_velocity * 10)
-
-            # 纹理特征
-            texture_feature = foam_features.get('texture_feature', 0.5)
-            y_texture = np.sin(x_data * 2) * texture_feature
+            # 品位值
+            grade_pb = get_process_data()
 
             # 更新曲线数据
-            self.bubble_curve.setData(x_data, y_bubble)
-            self.flow_curve.setData(x_data, y_flow)
-            self.texture_curve.setData(x_data, y_texture)
+
+            self.grade_curve.setData(x_data, grade_pb)
 
         except Exception as e:
             self.logger.add_log(f"更新图表时出错: {e}", "ERROR")
@@ -1063,38 +1024,3 @@ class FoamMonitoringSystem(QMainWindow):
             'grade_prediction': grade_pb,
             'recovery_prediction': grade_zn
         }
-
-    # 8. 图表相关方法
-    def setup_chart_curves(self):
-        """初始化图表曲线对象"""
-        try:
-            # 创建主图表
-            self.main_plot = self.graphics_widget.ci.addPlot(title="实时特征参数")
-            self.main_plot.showGrid(x=True, y=True, alpha=0.3)
-
-            # 初始化三条曲线
-            self.bubble_curve = self.main_plot.plot(
-                pen=pg.mkPen(color='y', width=2),
-                name="气泡大小"
-            )
-            self.flow_curve = self.main_plot.plot(
-                pen=pg.mkPen(color='b', width=2),
-                name="流速"
-            )
-            self.texture_curve = self.main_plot.plot(
-                pen=pg.mkPen(color='g', width=2),
-                name="纹理"
-            )
-
-            # 添加图例
-            self.main_plot.addLegend()
-
-            # 设置Y轴范围
-            self.main_plot.setYRange(-1.5, 1.5)
-
-        except Exception as e:
-            self.logger.add_log(f"初始化图表曲线时出错: {e}", "ERROR")
-            # 创建备用曲线对象
-            self.bubble_curve = None
-            self.flow_curve = None
-            self.texture_curve = None

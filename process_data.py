@@ -96,8 +96,8 @@ def capture_frame_simulate(camera_index):
 
 
 def get_process_data():
-    url = "http://10.12.18.2:8081/open/realdata/snapshot/batchGet"
-    tag_list = ["KYFX.kyfx_gqxk_grade_Pb", "KYFX.kyfx_gqxk_grade_Zn"]
+    url = OPC_URL
+    tag_list = TAG_LIST
     tag_param = ",".join(tag_list)
     try:
         params = {"tagNameList": tag_param}
