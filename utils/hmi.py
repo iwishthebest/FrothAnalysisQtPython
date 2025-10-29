@@ -197,7 +197,7 @@ if __name__ == "__main__":
     app.setFont(font)
 
     # 加载CSS样式
-    stylesheet = load_stylesheet("styles/styles.qss")
+    stylesheet = load_stylesheet("../styles/styles.qss")
     app.setStyleSheet(stylesheet)
 
     window = TechHMI()

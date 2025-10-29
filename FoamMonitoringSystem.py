@@ -1,19 +1,17 @@
 import numpy as np
-import requests
 from PySide6.QtWidgets import (QMainWindow, QWidget, QLabel, QPushButton,
                                QVBoxLayout, QHBoxLayout, QGridLayout,
                                QTabWidget, QGroupBox, QComboBox, QSpinBox,
                                QDoubleSpinBox, QTableWidget, QStatusBar, QTextEdit,
-                               QScrollArea, QTableWidgetItem, QProgressBar,
-                               QSpacerItem, QSizePolicy)
+                               QScrollArea, QTableWidgetItem, QProgressBar)
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QFont, QPixmap, QImage, QIcon, QKeyEvent
 import pyqtgraph as pg
 import cv2
 from datetime import datetime
 # 自定义模块，存放路径./utils
-from utils.system_logger import SystemLogger
-from utils.capture_frame import capture_frame_simulate, capture_frame_real
+from system_logger import SystemLogger
+from process_data import capture_frame_simulate
 
 
 class FoamMonitoringSystem(QMainWindow):
@@ -841,7 +839,7 @@ class FoamMonitoringSystem(QMainWindow):
         for i, foam_info in enumerate(self.video_labels):
             try:
                 # 模拟从不同泡沫相机获取视频帧
-                ret, frame = capture_frame_simulate(i) if i != 0 else capture_frame_real(i)
+                ret, frame = capture_frame_simulate(i)  # if i != 0 else capture_frame_real(i)
                 if ret:
                     # 转换为Qt图像格式
                     rgb_image = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
@@ -1043,29 +1041,8 @@ class FoamMonitoringSystem(QMainWindow):
     @staticmethod
     def get_process_data():
         """模拟获取工艺过程数据"""
-        url = "http://10.12.18.2:8081/open/realdata/snapshot/batchGet"
-        tag_list = ["KYFX.kyfx_gqxk_grade_Pb", "KYFX.kyfx_gqxk_grade_Zn"]
-        tag_param = ",".join(tag_list)
         grade_pb = -1
         grade_zn = -1
-        try:
-            params = {"tagNameList": tag_param}
-            response = requests.get(url=url, params=params, timeout=10)
-            if response.status_code == 200:
-                data = response.json()
-                records = []
-                for item in data.get("data", []):
-                    tag_name = item['TagName'].strip()
-                    value = item['Value']
-                    records.append((tag_name, value))
-                grade_pb = int(records[0][1])
-                grade_zn = int(records[1][1])
-            else:
-                print(f"请求失败，状态码：{response.status_code}")
-                return False
-        except Exception as e:
-            print(f"采集异常：{e}")
-            return False
         return {
             'current_level': np.random.uniform(1.1, 1.3),
             'current_dosing': np.random.uniform(45, 55),

@@ -12,7 +12,7 @@ db_file = Path("./data/data.db")
 db_name = str(db_file)
 # 表名避免使用特殊字符
 table_name = "sensor_data"
-tagList_file = Path("./src/tagList.csv")
+tagList_file = Path("../src/tagList.csv")
 
 interval = 60  # 采集间隔（秒）
 
