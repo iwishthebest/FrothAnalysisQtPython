@@ -7,7 +7,7 @@ rtsp_url = "rtsp://admin:fkqxk010@192.168.1.101:554/Streaming/Channels/101?tcp"
 
 # 抽帧参数设置
 save_interval = 5  # 抽帧时间间隔（秒）
-base_save_dir = "./data/extracted_frames"  # 基础保存目录
+base_save_dir = "./data/extracted_frames_new"  # 基础保存目录
 
 
 def connect_camera(rtsp_url):
