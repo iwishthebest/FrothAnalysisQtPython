@@ -5,34 +5,32 @@ class SystemLogger:
     """系统日志管理器"""
 
     def __init__(self):
-        self.logs = {
-            'monitoring': [],
-            'control': [],
-            'history': [],
-            'settings': []
-        }
-        self.max_entries = 100  # 每个日志最大条目数
+        self.logs = []
+        self.max_entries = 100  # 日志最大条目数
 
-    def add_log(self, category, message, level="INFO"):
+    def info(self, message):
+        self.add_log(message, level="INFO")
+
+    def debug(self, message):
+        self.add_log(message, level="DEBUG")
+
+    def error(self, message):
+        self.add_log(message, level="ERROR")
+
+    def add_log(self, message, level="INFO"):
         """添加日志"""
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         log_entry = f"[{timestamp}] [{level}] {message}"
 
-        if category in self.logs:
-            self.logs[category].append(log_entry)
-            # 保持日志条目数量不超过最大值
-            if len(self.logs[category]) > self.max_entries:
-                self.logs[category].pop(0)
+        self.logs.append(log_entry)
+        # 保持日志条目数量不超过最大值
+        if len(self.logs) > self.max_entries:
+            self.logs.pop(0)
 
-    def get_logs(self, category):
-        """获取指定类别的日志"""
-        return self.logs.get(category, [])
+    def get_logs(self):
+        """获取所有日志"""
+        return self.logs
 
-    def clear_logs(self, category=None):
+    def clear_logs(self):
         """清空日志"""
-        if category:
-            if category in self.logs:
-                self.logs[category].clear()
-        else:
-            for cat in self.logs:
-                self.logs[cat].clear()
+        self.logs.clear()

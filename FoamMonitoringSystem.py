@@ -151,7 +151,7 @@ class FoamMonitoringSystem(QMainWindow):
         """重载QSS样式表"""
         self.load_stylesheet()
         # self.status_label.setText("样式已重载 (F5)")
-        self.logger.add_log("monitoring", "reload qss", "INFO")
+        self.logger.add_log("reload qss", "INFO")
 
     def setup_timers(self):
         """设置定时器"""
@@ -368,7 +368,7 @@ class FoamMonitoringSystem(QMainWindow):
 
             tab_widget.addTab(history_tab, "历史数据")
         except Exception as e:
-            self.logger.add_log("history", f"设置历史数据选项卡时出错: {e}", "WARNING")
+            self.logger.add_log(f"设置历史数据选项卡时出错: {e}", "WARNING")
 
     def setup_settings_tab(self, tab_widget):
         """系统设置选项卡 - 优化布局"""
@@ -410,7 +410,7 @@ class FoamMonitoringSystem(QMainWindow):
 
             tab_widget.addTab(settings_tab, "系统设置")
         except Exception as e:
-            self.logger.add_log("monitoring", f"设置系统设置选项卡时出错: {e}", "ERROR")
+            self.logger.add_log(f"设置系统设置选项卡时出错: {e}", "ERROR")
 
     def setup_status_bar(self):
         """设置状态栏"""
@@ -701,7 +701,7 @@ class FoamMonitoringSystem(QMainWindow):
             layout.addLayout(mode_layout)
 
         except Exception as e:
-            self.logger.add_log("monitoring", f"选择自动模式时出错: {e}", "ERROR")
+            self.logger.add_log(f"选择自动模式时出错: {e}", "ERROR")
 
     def create_prediction_item(self, title, key, unit, color):
         """创建单个预测项 - 优化版本"""
@@ -802,9 +802,9 @@ class FoamMonitoringSystem(QMainWindow):
         self.log_texts[category] = log_text
         return log_text
 
-    def update_log_display(self, log_text, category):
+    def update_log_display(self, log_text):
         """更新日志显示"""
-        logs = self.logger.get_logs(category)
+        logs = self.logger.get_logs()
         log_text.setPlainText("\n".join(logs))
         # 滚动到底部
         log_text.verticalScrollBar().setValue(
@@ -816,25 +816,25 @@ class FoamMonitoringSystem(QMainWindow):
         try:
             for category, log_text in self.log_texts.items():
                 if log_text is not None:
-                    self.update_log_display(log_text, category)
+                    self.update_log_display(log_text)
         except Exception as e:
-            self.logger.add_log("monitoring", f"更新日志显示时出错: {e}", "ERROR")
+            self.logger.add_log(f"更新日志显示时出错: {e}", "ERROR")
 
     def clear_logs(self, category, log_text):
         """清空日志"""
-        self.logger.clear_logs(category)
-        self.update_log_display(log_text, category)
+        self.logger.clear_logs()
+        self.update_log_display(log_text)
 
     def export_logs(self, category):
         """导出日志到文件"""
         try:
             filename = f"logs/{category}_log_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
-            logs = self.logger.get_logs(category)
+            logs = self.logger.get_logs()
             with open(filename, 'w', encoding='utf-8') as f:
                 f.write("\n".join(logs))
-            self.logger.add_log(category, f"日志已导出到 {filename}")
+            self.logger.add_log(f"日志已导出到 {filename}", "INFO")
         except Exception as e:
-            self.logger.add_log(category, f"导出日志失败: {str(e)}", "ERROR")
+            self.logger.add_log(f"导出日志失败: {str(e)}", "ERROR")
 
     # 5. 数据更新与显示方法
     def update_video_display(self):
@@ -868,14 +868,14 @@ class FoamMonitoringSystem(QMainWindow):
                     # 设置标签的内容
                     foam_info['video_label'].setPixmap(scaled_pixmap)
                     foam_info['status_label'].setText("正常")
-                    self.logger.add_log("monitoring", f"相机 {i} 帧捕获成功", "INFO")
+                    self.logger.add_log(f"相机 {i} 帧捕获成功", "INFO")
                 else:
                     foam_info['status_label'].setText("无信号")
-                    self.logger.add_log("monitoring", f"相机 {i} 无信号", "WARNING")
+                    self.logger.add_log(f"相机 {i} 无信号", "WARNING")
 
             except Exception as e:
                 foam_info['status_label'].setText("错误")
-                self.logger.add_log("monitoring", f"更新泡沫相机 {i} 显示时出错: {e}", "ERROR")
+                self.logger.add_log(f"更新泡沫相机 {i} 显示时出错: {e}", "ERROR")
 
     def update_display_data(self):
         """更新显示数据"""
@@ -893,18 +893,18 @@ class FoamMonitoringSystem(QMainWindow):
             # 更新控制参数显示
             self.update_control_display(process_data)
 
-            self.logger.add_log("monitoring", "显示数据更新成功", "INFO")
+            self.logger.add_log("显示数据更新成功", "INFO")
         except Exception as e:
-            self.logger.add_log("monitoring", f"更新显示数据时出错: {e}", "ERROR")
+            self.logger.add_log(f"更新显示数据时出错: {e}", "ERROR")
 
     def update_status(self):
         """更新状态信息"""
         try:
             current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             self.time_label.setText(current_time)
-            self.logger.add_log("monitoring", "状态信息更新成功", "INFO")
+            self.logger.add_log("状态信息更新成功", "INFO")
         except Exception as e:
-            self.logger.add_log("monitoring", f"更新状态信息时出错: {e}", "ERROR")
+            self.logger.add_log(f"更新状态信息时出错: {e}", "ERROR")
 
     def update_charts(self, foam_features):
         """更新图表显示 - 修复版本"""
@@ -913,7 +913,7 @@ class FoamMonitoringSystem(QMainWindow):
             if (self.bubble_curve is None or
                     self.flow_curve is None or
                     self.texture_curve is None):
-                self.logger.add_log("monitoring", f"图表曲线未初始化，跳过更新", "ERROR")
+                self.logger.add_log(f"图表曲线未初始化，跳过更新", "ERROR")
                 return
 
             # 模拟数据更新
@@ -937,7 +937,7 @@ class FoamMonitoringSystem(QMainWindow):
             self.texture_curve.setData(x_data, y_texture)
 
         except Exception as e:
-            self.logger.add_log("monitoring", f"更新图表时出错: {e}", "ERROR")
+            self.logger.add_log(f"更新图表时出错: {e}", "ERROR")
 
     def update_predictions(self, process_data):
         """更新预测结果显示"""
@@ -949,7 +949,7 @@ class FoamMonitoringSystem(QMainWindow):
             self.recovery_label.setText(f"回收率: {recovery:.1f}%")
 
         except Exception as e:
-            self.logger.add_log("monitoring", f"更新预测显示时出错: {e}", "ERROR")
+            self.logger.add_log(f"更新预测显示时出错: {e}", "ERROR")
 
     def update_control_display(self, process_data):
         """更新控制参数显示"""
@@ -961,7 +961,7 @@ class FoamMonitoringSystem(QMainWindow):
             self.current_dosing_label.setText(f"当前: {current_dosing:.1f} ml/min")
 
         except Exception as e:
-            self.logger.add_log("monitoring", f"更新控制显示时出错: {e}", "ERROR")
+            self.logger.add_log(f"更新控制显示时出错: {e}", "ERROR")
 
     def update_realtime_table(self, foam_features):
         """更新实时数据表格"""
@@ -1022,7 +1022,7 @@ class FoamMonitoringSystem(QMainWindow):
                     group_box.setTitle("特征参数趋势 ▼")
 
         except Exception as e:
-            self.logger.add_log("monitoring", f"切换图表显示时出错: {e}", "ERROR")
+            self.logger.add_log(f"切换图表显示时出错: {e}", "ERROR")
 
     def on_auto_mode_selected(self):
         """自动模式选择"""
@@ -1031,7 +1031,7 @@ class FoamMonitoringSystem(QMainWindow):
                 self.manual_mode_btn.setChecked(False)
                 self.status_label.setText("控制模式: 自动")
         except Exception as e:
-            self.logger.add_log("monitoring", f"选择自动模式时出错: {e}", "ERROR")
+            self.logger.add_log(f"选择自动模式时出错: {e}", "ERROR")
 
     def on_manual_mode_selected(self):
         """手动模式选择"""
@@ -1040,7 +1040,7 @@ class FoamMonitoringSystem(QMainWindow):
                 self.auto_mode_btn.setChecked(False)
                 self.status_label.setText("控制模式: 手动")
         except Exception as e:
-            self.logger.add_log("monitoring", f"选择手动模式时出错: {e}", "ERROR")
+            self.logger.add_log(f"选择手动模式时出错: {e}", "ERROR")
 
     # 7. 数据获取方法（静态方法）
     @staticmethod
@@ -1093,7 +1093,7 @@ class FoamMonitoringSystem(QMainWindow):
             self.main_plot.setYRange(-1.5, 1.5)
 
         except Exception as e:
-            self.logger.add_log("monitoring", f"初始化图表曲线时出错: {e}", "ERROR")
+            self.logger.add_log(f"初始化图表曲线时出错: {e}", "ERROR")
             # 创建备用曲线对象
             self.bubble_curve = None
             self.flow_curve = None

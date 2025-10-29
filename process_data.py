@@ -25,7 +25,7 @@ OPC_URL = "http://10.12.18.2:8081/open/realdata/snapshot/batchGet"
 TAG_LIST = ["KYFX.kyfx_gqxk_grade_Pb", "KYFX.kyfx_gqxk_grade_Zn"]
 
 def connect_camera(rtsp_url):
-    logger.add_log("monitoring", f"尝试连接相机 {rtsp_url}", "INFO")
+    logger.add_log(f"尝试连接相机 {rtsp_url}", "INFO")
     camera_capture = cv2.VideoCapture(rtsp_url, cv2.CAP_FFMPEG)
     camera_capture.set(cv2.CAP_PROP_BUFFERSIZE, BUFFER_SIZE)
     return camera_capture
@@ -36,13 +36,13 @@ def retry_connection(rtsp_url):
     while retry_count < MAX_RETRY_COUNT:
         camera_capture = connect_camera(rtsp_url)
         if camera_capture.isOpened():
-            logger.add_log("monitoring", "重连成功！", "INFO")
+            logger.add_log("重连成功！", "INFO")
             return camera_capture
         else:
-            logger.add_log("monitoring", f"重连失败，{RETRY_DELAY}秒后重试... (尝试次数: {retry_count + 1})", "ERROR")
+            logger.add_log(f"重连失败，{RETRY_DELAY}秒后重试... (尝试次数: {retry_count + 1})", "ERROR")
             time.sleep(RETRY_DELAY)
             retry_count += 1
-    logger.add_log("monitoring", "重连失败三次，取消重连", "ERROR")
+    logger.add_log("重连失败三次，取消重连", "ERROR")
     return None
 
 
@@ -52,13 +52,13 @@ def capture_frame_real(i):
     while True:
         ret, frame = cap.read()
         if not ret:
-            logger.add_log("monitoring", "读取帧失败，尝试重新连接...", "WARNING")
+            logger.add_log("读取帧失败，尝试重新连接...", "WARNING")
             cap.release()
             cap = retry_connection(RTSP_URL[i])
             if cap is None:
                 return False, None
             continue
-        logger.add_log("monitoring", "帧捕获成功", "INFO")
+        logger.add_log("帧捕获成功", "INFO")
         return True, frame
 
 
@@ -88,10 +88,10 @@ def capture_frame_simulate(camera_index):
             radius = np.random.randint(*bubble_radius_ranges[camera_index])
             cv2.circle(frame, (x, y), radius, (255, 255, 255), -1)
 
-        logger.add_log("monitoring", f"模拟帧捕获成功，相机索引 {camera_index}", "INFO")
+        logger.add_log(f"模拟帧捕获成功，相机索引 {camera_index}", "INFO")
         return True, frame
     except Exception as e:
-        logger.add_log("monitoring", f"捕获相机 {camera_index} 视频帧时出错: {e}", "ERROR")
+        logger.add_log(f"捕获相机 {camera_index} 视频帧时出错: {e}", "ERROR")
         return False, None
 
 
@@ -112,10 +112,10 @@ def get_process_data():
             grade_pb = int(records[0][1])
             grade_zn = int(records[1][1])
         else:
-            logger.add_log("monitoring", f"请求失败，状态码：{response.status_code}", "ERROR")
+            logger.add_log(f"请求失败，状态码：{response.status_code}", "ERROR")
             return False
     except Exception as e:
-        logger.add_log("monitoring", f"采集异常：{e}", "ERROR")
+        logger.add_log(f"采集异常：{e}", "ERROR")
         return False
     return grade_pb, grade_zn
 
@@ -127,19 +127,19 @@ def get_plc_data():
 
     try:
         plc.connect('192.168.0.21', 0, 1)  # 参数：IP地址, 机架号, 槽号
-        logger.add_log("monitoring", "PLC连接成功", "INFO")
+        logger.add_log("PLC连接成功", "INFO")
     except Exception as e:
-        logger.add_log("monitoring", f"连接失败: {e}", "ERROR")
+        logger.add_log(f"连接失败: {e}", "ERROR")
         return False
 
     # 读取布尔值（例如 V0.0）
     bool_data = plc.db_read(1, 0, 1)  # 读取DB1，起始地址0，长度为1字节
     value_bool = util.get_bool(bool_data, 0, 0)  # 从第0字节的第0位解析出布尔值
-    logger.add_log("monitoring", f"V0.0的状态: {value_bool}", "INFO")
+    logger.add_log(f"V0.0的状态: {value_bool}", "INFO")
 
     # 读取过程输入映像区（Area ID=0x81）从偏移量34开始的一个字（2字节）
     data = plc.read_area(snap7.type.Areas.PE, 0, 34, 2)
     value = int.from_bytes(data, byteorder='big')  # 可能需要根据实际情况调整字节序
-    logger.add_log("monitoring", f"AIW34的原始值为: {value}", "INFO")
+    logger.add_log(f"AIW34的原始值为: {value}", "INFO")
 
     return True

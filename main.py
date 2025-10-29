@@ -18,7 +18,7 @@ def main():
         window.show()
         # 显示窗口并最大化
         # window.showMaximized()
-        window.logger.add_log("monitoring", "铅浮选监测系统启动成功", "INFO")
+        window.logger.add_log("铅浮选监测系统启动成功", "INFO")
         # print("铅浮选监测系统启动成功")
         return app.exec()
 
