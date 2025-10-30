@@ -15,9 +15,9 @@ def main():
         app.styleHints().setColorScheme(Qt.ColorScheme.Light)  # 固定为浅色[3](@ref)
         # 创建主窗口
         window = FoamMonitoringSystem()
-        window.show()
-        # 显示窗口并最大化
-        # window.showMaximized()
+        # window.show()  # 显示窗口
+        window.showMaximized()  # 显示窗口并最大化
+        # window.showFullScreen()  # 全屏显示
         window.logger.add_log("铅浮选监测系统启动成功", "INFO")
         # print("铅浮选监测系统启动成功")
         return app.exec()

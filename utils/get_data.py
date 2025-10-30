@@ -55,7 +55,7 @@ def init_database():
 
 
 def get_tag_list():
-    """从CSV文件获取标签列表，增加特殊字符日志"""
+    """从CSV文件获取标签列表"""
     tag_list = []
     try:
         with open(tagList_file, 'r', encoding='utf-8') as file:
@@ -63,12 +63,8 @@ def get_tag_list():
             for row_num, row in enumerate(reader, 1):
                 if row:  # 跳过空行
                     cleaned_line = re.sub(r'[\[\]]', '', row[0])
-                    withprefix = add_prefix(cleaned_line.strip())
-                    # 记录包含特殊字符的标签，便于排查
-                    if '#' in withprefix or '"' in withprefix or "'" in withprefix:
-                        print(
-                            f"注意: 标签包含特殊字符 - 行号: {row_num}, 标签: {withprefix}")
-                    tag_list.append(withprefix)
+                    with_prefix = add_prefix(cleaned_line.strip())
+                    tag_list.append(with_prefix)
         print(f"已加载 {len(tag_list)} 个标签")
     except Exception as e:
         print(f"读取标签列表失败: {e}")

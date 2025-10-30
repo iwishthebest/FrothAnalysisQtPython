@@ -1,3 +1,5 @@
+import time
+
 import numpy as np
 from PySide6.QtWidgets import (QMainWindow, QWidget, QLabel, QPushButton,
                                QVBoxLayout, QHBoxLayout, QGridLayout,
@@ -11,7 +13,7 @@ import cv2
 from datetime import datetime
 # 自定义模块，存放路径./utils
 from system_logger import SystemLogger
-from process_data import capture_frame_simulate,get_process_data
+from process_data import capture_frame_real,capture_frame_simulate,get_process_data
 
 
 class FoamMonitoringSystem(QMainWindow):
@@ -90,7 +92,7 @@ class FoamMonitoringSystem(QMainWindow):
 
         # Window
         self.setWindowTitle("铅浮选过程工况智能监测与控制系统")
-        self.setGeometry(0, 0, 1600, 900)
+        self.setGeometry(0, 0, 1920, 1000)
         self.setWindowIcon(QIcon("src/icon.png"))
 
         # 中央部件
@@ -154,9 +156,9 @@ class FoamMonitoringSystem(QMainWindow):
         self.data_timer.start(100)  # 10Hz更新
 
         # 视频更新定时器
-        self.video_timer = QTimer()
-        self.video_timer.timeout.connect(self.update_video_display)
-        self.video_timer.start(33)  # 30fps
+        # self.video_timer = QTimer()
+        # self.video_timer.timeout.connect(self.update_video_display)
+        # self.video_timer.start(33)  # 30fps
 
         # 状态更新定时器
         self.status_timer = QTimer()
@@ -497,7 +499,7 @@ class FoamMonitoringSystem(QMainWindow):
 
     def create_charts_section(self):
         """创建图表区域 - 优化版本"""
-        widget = QGroupBox("铅精品位趋势")
+        widget = QGroupBox("精矿实时品位")
         widget.setCheckable(True)
         widget.setChecked(False)
         widget.toggled.connect(
@@ -816,7 +818,7 @@ class FoamMonitoringSystem(QMainWindow):
         for i, foam_info in enumerate(self.video_labels):
             try:
                 # 模拟从不同泡沫相机获取视频帧
-                ret, frame = capture_frame_simulate(i)  # if i != 0 else capture_frame_real(i)
+                ret, frame = capture_frame_simulate(i) # if  i != 0 else capture_frame_real(i)
                 if ret:
                     # 转换为Qt图像格式
                     rgb_image = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
@@ -842,7 +844,7 @@ class FoamMonitoringSystem(QMainWindow):
                     # 设置标签的内容
                     foam_info['video_label'].setPixmap(scaled_pixmap)
                     foam_info['status_label'].setText("正常")
-                    self.logger.add_log(f"相机 {i} 帧捕获成功", "INFO")
+                    # self.logger.add_log(f"相机 {i} 帧捕获成功", "INFO")
                 else:
                     foam_info['status_label'].setText("无信号")
                     self.logger.add_log(f"相机 {i} 无信号", "WARNING")
@@ -856,10 +858,10 @@ class FoamMonitoringSystem(QMainWindow):
         try:
             # 模拟数据更新 - 实际应用中从模型和传感器获取
             foam_features = self.get_foam_features()
-            process_data = self.get_process_data()
+            process_data = get_process_data()
 
             # 更新图表
-            self.update_charts(foam_features)
+            self.update_charts(process_data)
 
             # 更新预测结果
             self.update_predictions(process_data)
@@ -867,7 +869,7 @@ class FoamMonitoringSystem(QMainWindow):
             # 更新控制参数显示
             self.update_control_display(process_data)
 
-            self.logger.add_log("显示数据更新成功", "INFO")
+            # self.logger.add_log("显示数据更新成功", "INFO")
         except Exception as e:
             self.logger.add_log(f"更新显示数据时出错: {e}", "ERROR")
 
@@ -876,11 +878,17 @@ class FoamMonitoringSystem(QMainWindow):
         try:
             current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             self.time_label.setText(current_time)
-            self.logger.add_log("状态信息更新成功", "INFO")
+            # self.logger.add_log("状态信息更新成功", "INFO")
         except Exception as e:
             self.logger.add_log(f"更新状态信息时出错: {e}", "ERROR")
 
-    def update_charts(self, foam_features):
+    import time
+    from datetime import datetime
+
+    import time
+    from datetime import datetime
+
+    def update_charts(self, process_data):
         """更新图表显示 - 修复版本"""
         try:
             # 检查曲线对象是否已初始化
@@ -888,14 +896,34 @@ class FoamMonitoringSystem(QMainWindow):
                 self.logger.add_log(f"图表曲线未初始化，跳过更新", "ERROR")
                 return
 
+            # 提取品位数据
+            grade_pb = process_data.get('KYFX.kyfx_gqxk_grade_Pb')
 
+            # 更新时间轴数据（使用当前时间戳，并转换为分钟）
+            current_time = datetime.now()
+            if not hasattr(self, 'start_time'):
+                self.start_time = current_time  # 设置起始时间为第一次调用的时间
+            elapsed_minutes = (current_time - self.start_time).total_seconds() / 60.0
 
-            # 品位值
-            grade_pb = get_process_data()
+            if not hasattr(self, 'x_data'):
+                self.x_data = [elapsed_minutes]
+            else:
+                self.x_data.append(elapsed_minutes)
+
+            # 更新品位值
+            if not hasattr(self, 'y_data_pb'):
+                self.y_data_pb = [grade_pb]
+            else:
+                self.y_data_pb.append(grade_pb)
+
+            # 限制数据长度以防止内存溢出
+            max_data_points = 100
+            if len(self.x_data) > max_data_points:
+                self.x_data = self.x_data[-max_data_points:]
+                self.y_data_pb = self.y_data_pb[-max_data_points:]
 
             # 更新曲线数据
-
-            self.grade_curve.setData(x_data, grade_pb)
+            self.grade_curve.setData(self.x_data, self.y_data_pb)
 
         except Exception as e:
             self.logger.add_log(f"更新图表时出错: {e}", "ERROR")
@@ -903,7 +931,7 @@ class FoamMonitoringSystem(QMainWindow):
     def update_predictions(self, process_data):
         """更新预测结果显示"""
         try:
-            grade = process_data.get('grade_prediction', 0)
+            grade = process_data.get('KYFX.kyfx_gqxk_grade_Pb', 0)
             recovery = process_data.get('recovery_prediction', 0)
 
             self.grade_label.setText(f"铅品位: {grade:.1f}%")
@@ -978,9 +1006,9 @@ class FoamMonitoringSystem(QMainWindow):
 
                 # 更新标题
                 if checked:
-                    group_box.setTitle("特征参数趋势 ▲")
+                    group_box.setTitle("精矿实时品位 ▲")
                 else:
-                    group_box.setTitle("特征参数趋势 ▼")
+                    group_box.setTitle("精矿实时品位 ▼")
 
         except Exception as e:
             self.logger.add_log(f"切换图表显示时出错: {e}", "ERROR")

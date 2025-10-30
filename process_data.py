@@ -1,3 +1,5 @@
+import csv
+import re
 import time
 import numpy as np
 import cv2
@@ -13,16 +15,18 @@ logger = SystemLogger()
 # Constants for Camera
 BUFFER_SIZE = 1
 TIMEOUT_MS = 3000
-RTSP_URL = ["rtsp://admin:fkqxk010@192.168.1.101:554/Streaming/Channels/101?tcp",
-            "rtsp://admin:fkqxk010@192.168.1.101:554/Streaming/Channels/101?tcp",
-            "rtsp://admin:fkqxk010@192.168.1.101:554/Streaming/Channels/101?tcp",
-            "rtsp://admin:fkqxk010@192.168.1.101:554/Streaming/Channels/101?tcp"]
+RTSP_URL = ["rtsp://admin:fkqxk010@192.168.1.101:554/Streaming/Channels/101",
+            "rtsp://admin:fkqxk010@192.168.1.101:554/Streaming/Channels/101",
+            "rtsp://admin:fkqxk010@192.168.1.101:554/Streaming/Channels/101",
+            "rtsp://admin:fkqxk010@192.168.1.101:554/Streaming/Channels/101"]
 MAX_RETRY_COUNT = 3
 RETRY_DELAY = 2
 
 # Constants for OPC data
 OPC_URL = "http://10.12.18.2:8081/open/realdata/snapshot/batchGet"
 TAG_LIST = ["KYFX.kyfx_gqxk_grade_Pb", "KYFX.kyfx_gqxk_grade_Zn"]
+TAG_LIST_FILE = "src/tagList.csv"
+
 
 def connect_camera(rtsp_url):
     logger.add_log(f"尝试连接相机 {rtsp_url}", "INFO")
@@ -49,17 +53,15 @@ def retry_connection(rtsp_url):
 def capture_frame_real(i):
     cap = connect_camera(RTSP_URL[i])
 
-    while True:
-        ret, frame = cap.read()
-        if not ret:
-            logger.add_log("读取帧失败，尝试重新连接...", "WARNING")
-            cap.release()
-            cap = retry_connection(RTSP_URL[i])
-            if cap is None:
-                return False, None
-            continue
-        logger.add_log("帧捕获成功", "INFO")
-        return True, frame
+    ret, frame = cap.read()
+    if not ret:
+        logger.add_log("读取帧失败，尝试重新连接...", "WARNING")
+        cap.release()
+        cap = retry_connection(RTSP_URL[i])
+        if cap is None:
+            return False, None
+    logger.add_log("帧捕获成功", "INFO")
+    return True, frame
 
 
 def capture_frame_simulate(camera_index):
@@ -88,36 +90,61 @@ def capture_frame_simulate(camera_index):
             radius = np.random.randint(*bubble_radius_ranges[camera_index])
             cv2.circle(frame, (x, y), radius, (255, 255, 255), -1)
 
-        logger.add_log(f"模拟帧捕获成功，相机索引 {camera_index}", "INFO")
+        # logger.add_log(f"模拟帧捕获成功，相机索引 {camera_index}", "INFO")
         return True, frame
     except Exception as e:
         logger.add_log(f"捕获相机 {camera_index} 视频帧时出错: {e}", "ERROR")
         return False, None
 
 
+def get_tag_list():
+    """从CSV文件获取标签列表"""
+    tag_list = []
+    try:
+        with open(TAG_LIST_FILE, 'r', encoding='utf-8') as file:
+            reader = csv.reader(file)
+            for row_num, row in enumerate(reader, 1):
+                if row:  # 跳过空行
+                    cleaned_line = re.sub(r'[\[\]]', '', row[0])
+                    with_prefix = add_prefix(cleaned_line.strip())
+                    tag_list.append(with_prefix)
+        # print(f"已加载 {len(tag_list)} 个标签")
+    except Exception as e:
+        logger.error(f"读取标签列表失败: {e}")
+    return tag_list
+
+
+def add_prefix(tag_name):
+    """为标签添加前缀"""
+    if tag_name.startswith('yj_'):
+        return f'YJ.{tag_name}'
+    elif tag_name.startswith('kyfx_'):
+        return f'KYFX.{tag_name}'
+    return tag_name
+
+
 def get_process_data():
     url = OPC_URL
-    tag_list = TAG_LIST
+    tag_list = get_tag_list()
     tag_param = ",".join(tag_list)
     try:
         params = {"tagNameList": tag_param}
         response = requests.get(url=url, params=params, timeout=10)
+        values = {}
         if response.status_code == 200:
             data = response.json()
-            records = []
             for item in data.get("data", []):
                 tag_name = item['TagName'].strip()
-                value = item['Value']
-                records.append((tag_name, value))
-            grade_pb = int(records[0][1])
-            grade_zn = int(records[1][1])
+                value = float(item['Value'])
+                time = item['Time']
+                values[tag_name] = value
         else:
             logger.add_log(f"请求失败，状态码：{response.status_code}", "ERROR")
             return False
     except Exception as e:
         logger.add_log(f"采集异常：{e}", "ERROR")
         return False
-    return grade_pb, grade_zn
+    return values
 
 
 def get_plc_data():
