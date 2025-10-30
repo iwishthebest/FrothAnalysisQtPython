@@ -1,5 +1,3 @@
-import time
-
 import numpy as np
 from PySide6.QtWidgets import (QMainWindow, QWidget, QLabel, QPushButton,
                                QVBoxLayout, QHBoxLayout, QGridLayout,
@@ -11,9 +9,11 @@ from PySide6.QtGui import QFont, QPixmap, QImage, QIcon, QKeyEvent
 import pyqtgraph as pg
 import cv2
 from datetime import datetime
+
+from RTSPStreamReader import RTSPStreamReader
 # 自定义模块，存放路径./utils
 from system_logger import SystemLogger
-from process_data import capture_frame_real,capture_frame_simulate,get_process_data
+from process_data import capture_frame_simulate, get_process_data
 
 
 class FoamMonitoringSystem(QMainWindow):
@@ -49,6 +49,8 @@ class FoamMonitoringSystem(QMainWindow):
         # ==================== 监控模块变量 ====================
         # 1. 视频监控
         self.video_labels = []  # 四个相机预览标签
+        # RTSP流读取器列表
+        self.rtsp_readers = []
 
         # 2. 工况状态显示
         self.condition_indicator = None
@@ -104,6 +106,7 @@ class FoamMonitoringSystem(QMainWindow):
 
         # 左侧四个相机预览区域
         self.setup_camera_previews(main_layout)
+        self.init_camera_reader()
 
         # 右侧控制面板区域
         self.setup_control_panel(main_layout)
@@ -119,6 +122,18 @@ class FoamMonitoringSystem(QMainWindow):
 
         # 设置焦点策略，确保窗口能接收键盘事件
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+
+    def init_camera_reader(self):
+        # 初始化RTSP流读取器
+        for i, foam_info in enumerate(self.video_labels):
+            if i != 0:
+                continue
+            rtsp_url = f"rtsp://admin:fkqxk010@192.168.1.{101 + i}:554/Streaming/Channels/101?tcp"
+            reader = RTSPStreamReader(rtsp_url)
+            if reader.start():
+                self.rtsp_readers.append(reader)
+            else:
+                self.logger.add_log(f"无法启动RTSP流读取器 {i}", "ERROR")
 
     def keyPressEvent(self, event: QKeyEvent):
         """重写键盘按下事件处理"""
@@ -156,9 +171,9 @@ class FoamMonitoringSystem(QMainWindow):
         self.data_timer.start(100)  # 10Hz更新
 
         # 视频更新定时器
-        # self.video_timer = QTimer()
-        # self.video_timer.timeout.connect(self.update_video_display)
-        # self.video_timer.start(33)  # 30fps
+        self.video_timer = QTimer()
+        self.video_timer.timeout.connect(self.update_video_display)
+        self.video_timer.start(33)  # 30fps
 
         # 状态更新定时器
         self.status_timer = QTimer()
@@ -816,16 +831,19 @@ class FoamMonitoringSystem(QMainWindow):
     def update_video_display(self):
         """更新四台泡沫相机预览显示"""
         for i, foam_info in enumerate(self.video_labels):
+
             try:
-                # 模拟从不同泡沫相机获取视频帧
-                ret, frame = capture_frame_simulate(i) # if  i != 0 else capture_frame_real(i)
-                if ret:
+                if i != 0:
+                    frame = capture_frame_simulate(i)
+                else:
+                    # 从RTSPStreamReader获取最新帧
+                    frame = self.rtsp_readers[i].get_frame(timeout=2)
+                if frame is not None:
                     # 转换为Qt图像格式
                     rgb_image = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                     h, w, ch = rgb_image.shape
                     bytes_per_line = ch * w
-                    qt_image = QImage(rgb_image.data, w, h, bytes_per_line,
-                                      QImage.Format.Format_RGB888)
+                    qt_image = QImage(rgb_image.data, w, h, bytes_per_line, QImage.Format.Format_RGB888)
 
                     # 获取标签实际大小
                     label_width = foam_info['video_label'].width()
@@ -838,13 +856,9 @@ class FoamMonitoringSystem(QMainWindow):
                         Qt.AspectRatioMode.KeepAspectRatio
                     )
 
-                    # 设置标签的固定大小
-                    foam_info['video_label'].setFixedSize(label_width, label_height)
-
                     # 设置标签的内容
                     foam_info['video_label'].setPixmap(scaled_pixmap)
                     foam_info['status_label'].setText("正常")
-                    # self.logger.add_log(f"相机 {i} 帧捕获成功", "INFO")
                 else:
                     foam_info['status_label'].setText("无信号")
                     self.logger.add_log(f"相机 {i} 无信号", "WARNING")
@@ -881,12 +895,6 @@ class FoamMonitoringSystem(QMainWindow):
             # self.logger.add_log("状态信息更新成功", "INFO")
         except Exception as e:
             self.logger.add_log(f"更新状态信息时出错: {e}", "ERROR")
-
-    import time
-    from datetime import datetime
-
-    import time
-    from datetime import datetime
 
     def update_charts(self, process_data):
         """更新图表显示 - 修复版本"""
