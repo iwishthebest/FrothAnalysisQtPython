@@ -124,6 +124,9 @@ class FoamMonitoringSystem(QMainWindow):
         # 状态栏
         self.setup_status_bar()
 
+        # 相机初始化
+        self.init_camera_reader()
+
         # 启动定时器
         self.setup_timers()
 
@@ -186,99 +189,8 @@ class FoamMonitoringSystem(QMainWindow):
         title_label.setFont(QFont("Microsoft YaHei", 16, QFont.Weight.Bold))
         control_layout.addWidget(title_label)
 
-        # 创建控制参数分组
-        control_groups = [
-            ("液位控制参数", self.create_level_control_group()),
-            ("加药控制参数", self.create_dosing_control_group()),
-            ("PID参数设置", self.create_pid_control_group())
-        ]
-
-        for group_title, group_widget in control_groups:
-            group_box = QGroupBox(group_title)
-            group_layout = QVBoxLayout(group_box)
-            group_layout.addWidget(group_widget)
-            control_layout.addWidget(group_box)
-
         control_layout.addStretch()
         self.left_stack.addWidget(self.control_page)
-
-    def create_level_control_group(self):
-        """创建液位控制组"""
-        widget = QWidget()
-        layout = QVBoxLayout(widget)
-
-        # 设定值
-        setpoint_layout = QHBoxLayout()
-        setpoint_layout.addWidget(QLabel("液位设定:"))
-        self.level_setpoint_control = QDoubleSpinBox()
-        self.level_setpoint_control.setRange(0.5, 2.5)
-        self.level_setpoint_control.setValue(1.2)
-        self.level_setpoint_control.setSuffix(" m")
-        setpoint_layout.addWidget(self.level_setpoint_control)
-        setpoint_layout.addStretch()
-
-        # 当前值显示
-        current_layout = QHBoxLayout()
-        current_layout.addWidget(QLabel("当前液位:"))
-        self.current_level_display = QLabel("-- m")
-        current_layout.addWidget(self.current_level_display)
-        current_layout.addStretch()
-
-        layout.addLayout(setpoint_layout)
-        layout.addLayout(current_layout)
-
-        return widget
-
-    def create_dosing_control_group(self):
-        """创建加药控制组"""
-        widget = QWidget()
-        layout = QVBoxLayout(widget)
-
-        # 药剂选择
-        reagent_layout = QHBoxLayout()
-        reagent_layout.addWidget(QLabel("药剂类型:"))
-        self.reagent_combo_control = QComboBox()
-        self.reagent_combo_control.addItems(["捕收剂", "起泡剂", "抑制剂"])
-        reagent_layout.addWidget(self.reagent_combo_control)
-        reagent_layout.addStretch()
-
-        # 加药量控制
-        dosing_layout = QHBoxLayout()
-        dosing_layout.addWidget(QLabel("加药量:"))
-        self.dosing_setpoint_control = QDoubleSpinBox()
-        self.dosing_setpoint_control.setRange(0, 100)
-        self.dosing_setpoint_control.setValue(50)
-        self.dosing_setpoint_control.setSuffix(" ml/min")
-        dosing_layout.addWidget(self.dosing_setpoint_control)
-        dosing_layout.addStretch()
-
-        layout.addLayout(reagent_layout)
-        layout.addLayout(dosing_layout)
-
-        return widget
-
-    def create_pid_control_group(self):
-        """创建PID参数组"""
-        widget = QWidget()
-        layout = QGridLayout(widget)
-
-        pid_params = [
-            ("比例系数 Kp:", "pid_kp", 1.0),
-            ("积分时间 Ti:", "pid_ti", 0.1),
-            ("微分时间 Td:", "pid_td", 0.01),
-            ("采样周期 Ts:", "pid_ts", 0.1)
-        ]
-
-        for row, (label_text, attr_name, default) in enumerate(pid_params):
-            layout.addWidget(QLabel(label_text), row, 0)
-            spinbox = QDoubleSpinBox()
-            spinbox.setRange(0, 10)
-            spinbox.setValue(default)
-            spinbox.setSingleStep(0.01)
-            setattr(self, attr_name, spinbox)
-            layout.addWidget(spinbox, row, 1)
-
-        return widget
 
     def init_camera_reader(self):
         # 初始化RTSP流读取器
