@@ -91,10 +91,10 @@ def capture_frame_simulate(camera_index):
             cv2.circle(frame, (x, y), radius, (255, 255, 255), -1)
 
         # logger.add_log(f"模拟帧捕获成功，相机索引 {camera_index}", "INFO")
-        return True, frame
+        return frame
     except Exception as e:
         logger.add_log(f"捕获相机 {camera_index} 视频帧时出错: {e}", "ERROR")
-        return False, None
+        return None
 
 
 def get_tag_list():

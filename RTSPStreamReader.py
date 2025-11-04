@@ -7,6 +7,7 @@ from queue import Queue, Empty
 
 class RTSPStreamReader:
     def __init__(self, rtsp_url, window_size=(640, 480), reconnect_interval=5, max_retries=10):
+        self.thread = None
         self.rtsp_url = rtsp_url
         self.window_size = window_size  # (width, height)
         self.reconnect_interval = reconnect_interval
@@ -17,7 +18,8 @@ class RTSPStreamReader:
         self.frame_queue = Queue(maxsize=1)
         self.logger = self._setup_logger()
 
-    def _setup_logger(self):
+    @staticmethod
+    def _setup_logger():
         logger = logging.getLogger('RTSP_Reader')
         logger.setLevel(logging.INFO)
         handler = logging.StreamHandler()
