@@ -189,8 +189,148 @@ class FoamMonitoringSystem(QMainWindow):
         title_label.setFont(QFont("Microsoft YaHei", 16, QFont.Weight.Bold))
         control_layout.addWidget(title_label)
 
-        control_layout.addStretch()
+        # 创建滚动区域以容纳四个浮选槽
+        scroll_area = QScrollArea()
+        scroll_widget = QWidget()
+        scroll_layout = QVBoxLayout(scroll_widget)
+
+        # 创建四个浮选槽控件组
+        flotation_tanks = [
+            ("铅快粗浮选槽", "粗选阶段，处理原矿"),
+            ("铅精一浮选槽", "第一次精选，提高品位"),
+            ("铅精二浮选槽", "第二次精选，进一步提纯"),
+            ("铅精三浮选槽", "第三次精选，最终精矿")
+        ]
+
+        for i, (tank_name, description) in enumerate(flotation_tanks):
+            tank_group = self.create_flotation_tank_control(tank_name, description, i + 1)
+            scroll_layout.addWidget(tank_group)
+
+        scroll_layout.addStretch()
+
+        # 设置滚动区域
+        scroll_area.setWidget(scroll_widget)
+        scroll_area.setWidgetResizable(True)
+        scroll_area.setMaximumHeight(600)
+
+        control_layout.addWidget(scroll_area)
         self.left_stack.addWidget(self.control_page)
+
+    def create_flotation_tank_control(self, tank_name, description, tank_id):
+        """创建单个浮选槽控制组"""
+        group_box = QGroupBox(tank_name)
+        group_box.setProperty("flotationTank", f"tank_{tank_id}")
+        layout = QVBoxLayout(group_box)
+
+        # 描述标签
+        desc_label = QLabel(description)
+        desc_label.setStyleSheet("color: #666; font-size: 10px;")
+        layout.addWidget(desc_label)
+
+        # 液位控制区域
+        level_group = QGroupBox("液位控制")
+        level_layout = QGridLayout(level_group)
+
+        # 设定值
+        level_layout.addWidget(QLabel("设定值:"), 0, 0)
+        level_spinbox = QDoubleSpinBox()
+        level_spinbox.setRange(0.5, 2.5)
+        level_spinbox.setValue(1.2 + tank_id * 0.1)  # 不同槽位不同默认值
+        level_spinbox.setSuffix(" m")
+        level_spinbox.valueChanged.connect(
+            lambda value, tid=tank_id: self.on_tank_level_changed(tid, value)
+        )
+        level_layout.addWidget(level_spinbox, 0, 1)
+
+        # 当前值显示
+        current_level_label = QLabel("当前: -- m")
+        current_level_label.setObjectName(f"tank_{tank_id}_current_level")
+        level_layout.addWidget(current_level_label, 0, 2)
+
+        # PID参数
+        level_layout.addWidget(QLabel("PID参数:"), 1, 0)
+        for j, (param, default) in enumerate([("Kp", 1.0), ("Ki", 0.1), ("Kd", 0.01)]):
+            level_layout.addWidget(QLabel(f"{param}:"), 1, j * 2 + 1)
+            pid_spinbox = QDoubleSpinBox()
+            pid_spinbox.setRange(0, 10)
+            pid_spinbox.setValue(default)
+            pid_spinbox.setDecimals(3)
+            setattr(self, f"tank_{tank_id}_pid_{param.lower()}", pid_spinbox)
+            level_layout.addWidget(pid_spinbox, 1, j * 2 + 2)
+
+        layout.addWidget(level_group)
+
+        # 加药量控制区域
+        dosing_group = QGroupBox("加药量控制")
+        dosing_layout = QGridLayout(dosing_group)
+
+        # 药剂类型选择
+        dosing_layout.addWidget(QLabel("药剂类型:"), 0, 0)
+        reagent_combo = QComboBox()
+        reagent_combo.addItems(["捕收剂", "起泡剂", "抑制剂"])
+        reagent_combo.currentTextChanged.connect(
+            lambda text, tid=tank_id: self.on_reagent_changed(tid, text)
+        )
+        dosing_layout.addWidget(reagent_combo, 0, 1)
+
+        # 加药量设定
+        dosing_layout.addWidget(QLabel("加药量:"), 1, 0)
+        dosing_spinbox = QDoubleSpinBox()
+        dosing_spinbox.setRange(0, 200)
+        dosing_spinbox.setValue(50 + tank_id * 10)
+        dosing_spinbox.setSuffix(" ml/min")
+        dosing_spinbox.valueChanged.connect(
+            lambda value, tid=tank_id: self.on_dosing_changed(tid, value)
+        )
+        dosing_layout.addWidget(dosing_spinbox, 1, 1)
+
+        # 当前加药量显示
+        current_dosing_label = QLabel("当前: -- ml/min")
+        current_dosing_label.setObjectName(f"tank_{tank_id}_current_dosing")
+        dosing_layout.addWidget(current_dosing_label, 1, 2)
+
+        layout.addWidget(dosing_group)
+
+        # 状态指示区域
+        status_widget = QWidget()
+        status_layout = QHBoxLayout(status_widget)
+
+        # 运行状态指示灯
+        status_indicator = QLabel()
+        status_indicator.setFixedSize(12, 12)
+        status_indicator.setStyleSheet("background-color: green; border-radius: 6px;")
+        status_indicator.setObjectName(f"tank_{tank_id}_status")
+        status_layout.addWidget(status_indicator)
+
+        # 状态文本
+        status_text = QLabel("运行正常")
+        status_text.setObjectName(f"tank_{tank_id}_status_text")
+        status_layout.addWidget(status_text)
+        status_layout.addStretch()
+
+        # 泡沫质量指示
+        foam_quality = QLabel("泡沫质量: 良好")
+        foam_quality.setObjectName(f"tank_{tank_id}_foam_quality")
+        status_layout.addWidget(foam_quality)
+
+        layout.addWidget(status_widget)
+
+        return group_box
+
+    def on_tank_level_changed(self, tank_id, value):
+        """浮选槽液位设定值改变"""
+        self.logger.add_log(f"浮选槽{tank_id}液位设定为: {value} m", "INFO")
+        # 这里可以添加实际的控制逻辑
+
+    def on_dosing_changed(self, tank_id, value):
+        """浮选槽加药量设定值改变"""
+        self.logger.add_log(f"浮选槽{tank_id}加药量设定为: {value} ml/min", "INFO")
+        # 这里可以添加实际的控制逻辑
+
+    def on_reagent_changed(self, tank_id, reagent_type):
+        """浮选槽药剂类型改变"""
+        self.logger.add_log(f"浮选槽{tank_id}药剂类型改为: {reagent_type}", "INFO")
+        # 这里可以添加实际的控制逻辑
 
     def init_camera_reader(self):
         # 初始化RTSP流读取器
