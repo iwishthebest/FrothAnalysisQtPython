@@ -3,7 +3,7 @@ from PySide6.QtWidgets import (QMainWindow, QWidget, QLabel, QPushButton,
                                QVBoxLayout, QHBoxLayout, QGridLayout,
                                QTabWidget, QGroupBox, QComboBox, QSpinBox,
                                QDoubleSpinBox, QTableWidget, QStatusBar, QTextEdit,
-                               QScrollArea, QTableWidgetItem, QProgressBar)
+                               QScrollArea, QTableWidgetItem, QProgressBar, QStackedWidget)
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QFont, QPixmap, QImage, QIcon, QKeyEvent
 import pyqtgraph as pg
@@ -97,6 +97,9 @@ class FoamMonitoringSystem(QMainWindow):
         self.setGeometry(0, 0, 1920, 1000)
         self.setWindowIcon(QIcon("src/icon.png"))
 
+        # 添加堆叠窗口管理左侧界面
+        self.left_stack = QStackedWidget()
+
         # 中央部件
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
@@ -104,9 +107,16 @@ class FoamMonitoringSystem(QMainWindow):
         # 主布局
         main_layout = QHBoxLayout(central_widget)
 
+        # 左侧堆叠窗口
+        main_layout.addWidget(self.left_stack, 70)
+
+        # 创建两个左侧界面
+        self.setup_video_preview_page()  # 视频预览界面
+        self.setup_control_interface()  # 控制参数界面
+
         # 左侧四个相机预览区域
-        self.setup_camera_previews(main_layout)
-        self.init_camera_reader()
+        # self.setup_camera_previews(main_layout)
+        # self.init_camera_reader()
 
         # 右侧控制面板区域
         self.setup_control_panel(main_layout)
@@ -122,6 +132,153 @@ class FoamMonitoringSystem(QMainWindow):
 
         # 设置焦点策略，确保窗口能接收键盘事件
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+
+    def setup_video_preview_page(self):
+        """创建视频预览界面"""
+        self.video_page = QWidget()
+        video_layout = QVBoxLayout(self.video_page)
+
+        # 将原有的相机预览设置移到这里
+        grid_layout = QGridLayout()
+
+        foam_positions = [
+            ("铅快粗泡沫", 0, 0),
+            ("铅精一泡沫", 0, 1),
+            ("铅精二泡沫", 1, 0),
+            ("铅精三泡沫", 1, 1)
+        ]
+
+        for foam_name, row, col in foam_positions:
+            foam_group = QGroupBox(foam_name)
+            foam_group_layout = QVBoxLayout(foam_group)
+
+            video_label = QLabel()
+            video_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            video_label.setProperty("videoLabel", "true")
+
+            status_label = QLabel("相机连接中...")
+            status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+            video_label.setLayout(QVBoxLayout())
+            video_label.layout().addWidget(status_label)
+            foam_group_layout.addWidget(video_label)
+            foam_group_layout.setStretchFactor(video_label, 10)
+
+            self.video_labels.append({
+                'video_label': video_label,
+                'status_label': status_label,
+                'foam_name': foam_name
+            })
+
+            grid_layout.addWidget(foam_group, row, col)
+
+        video_layout.addLayout(grid_layout)
+        self.left_stack.addWidget(self.video_page)
+
+    def setup_control_interface(self):
+        """创建控制参数专用界面"""
+        self.control_page = QWidget()
+        control_layout = QVBoxLayout(self.control_page)
+
+        # 控制参数标题
+        title_label = QLabel("浮选过程控制参数")
+        title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        title_label.setFont(QFont("Microsoft YaHei", 16, QFont.Weight.Bold))
+        control_layout.addWidget(title_label)
+
+        # 创建控制参数分组
+        control_groups = [
+            ("液位控制参数", self.create_level_control_group()),
+            ("加药控制参数", self.create_dosing_control_group()),
+            ("PID参数设置", self.create_pid_control_group())
+        ]
+
+        for group_title, group_widget in control_groups:
+            group_box = QGroupBox(group_title)
+            group_layout = QVBoxLayout(group_box)
+            group_layout.addWidget(group_widget)
+            control_layout.addWidget(group_box)
+
+        control_layout.addStretch()
+        self.left_stack.addWidget(self.control_page)
+
+    def create_level_control_group(self):
+        """创建液位控制组"""
+        widget = QWidget()
+        layout = QVBoxLayout(widget)
+
+        # 设定值
+        setpoint_layout = QHBoxLayout()
+        setpoint_layout.addWidget(QLabel("液位设定:"))
+        self.level_setpoint_control = QDoubleSpinBox()
+        self.level_setpoint_control.setRange(0.5, 2.5)
+        self.level_setpoint_control.setValue(1.2)
+        self.level_setpoint_control.setSuffix(" m")
+        setpoint_layout.addWidget(self.level_setpoint_control)
+        setpoint_layout.addStretch()
+
+        # 当前值显示
+        current_layout = QHBoxLayout()
+        current_layout.addWidget(QLabel("当前液位:"))
+        self.current_level_display = QLabel("-- m")
+        current_layout.addWidget(self.current_level_display)
+        current_layout.addStretch()
+
+        layout.addLayout(setpoint_layout)
+        layout.addLayout(current_layout)
+
+        return widget
+
+    def create_dosing_control_group(self):
+        """创建加药控制组"""
+        widget = QWidget()
+        layout = QVBoxLayout(widget)
+
+        # 药剂选择
+        reagent_layout = QHBoxLayout()
+        reagent_layout.addWidget(QLabel("药剂类型:"))
+        self.reagent_combo_control = QComboBox()
+        self.reagent_combo_control.addItems(["捕收剂", "起泡剂", "抑制剂"])
+        reagent_layout.addWidget(self.reagent_combo_control)
+        reagent_layout.addStretch()
+
+        # 加药量控制
+        dosing_layout = QHBoxLayout()
+        dosing_layout.addWidget(QLabel("加药量:"))
+        self.dosing_setpoint_control = QDoubleSpinBox()
+        self.dosing_setpoint_control.setRange(0, 100)
+        self.dosing_setpoint_control.setValue(50)
+        self.dosing_setpoint_control.setSuffix(" ml/min")
+        dosing_layout.addWidget(self.dosing_setpoint_control)
+        dosing_layout.addStretch()
+
+        layout.addLayout(reagent_layout)
+        layout.addLayout(dosing_layout)
+
+        return widget
+
+    def create_pid_control_group(self):
+        """创建PID参数组"""
+        widget = QWidget()
+        layout = QGridLayout(widget)
+
+        pid_params = [
+            ("比例系数 Kp:", "pid_kp", 1.0),
+            ("积分时间 Ti:", "pid_ti", 0.1),
+            ("微分时间 Td:", "pid_td", 0.01),
+            ("采样周期 Ts:", "pid_ts", 0.1)
+        ]
+
+        for row, (label_text, attr_name, default) in enumerate(pid_params):
+            layout.addWidget(QLabel(label_text), row, 0)
+            spinbox = QDoubleSpinBox()
+            spinbox.setRange(0, 10)
+            spinbox.setValue(default)
+            spinbox.setSingleStep(0.01)
+            setattr(self, attr_name, spinbox)
+            layout.addWidget(spinbox, row, 1)
+
+        return widget
 
     def init_camera_reader(self):
         # 初始化RTSP流读取器
@@ -239,10 +396,27 @@ class FoamMonitoringSystem(QMainWindow):
         left_layout.addLayout(grid_layout)
         main_layout.addWidget(left_widget, 70)  # 70%宽度
 
+    def on_tab_changed(self, index):
+        """处理选项卡切换事件"""
+        tab_titles = ["实时监测", "控制参数", "历史数据", "系统设置"]
+        current_tab = tab_titles[index] if index < len(tab_titles) else "未知"
+
+        if current_tab == "控制参数":
+            # 切换到控制参数界面
+            self.left_stack.setCurrentWidget(self.control_page)
+            self.logger.add_log("切换到控制参数界面", "INFO")
+        else:
+            # 切换回视频预览界面
+            self.left_stack.setCurrentWidget(self.video_page)
+            self.logger.add_log("切换到视频预览界面", "INFO")
+
     def setup_control_panel(self, main_layout):
         """设置右侧控制面板"""
         right_widget = QTabWidget()
         right_widget.setMinimumWidth(500)  # 设置最小宽度
+
+        # 连接选项卡切换信号
+        right_widget.currentChanged.connect(self.on_tab_changed)
 
         # 选项卡1: 实时监测
         self.setup_monitoring_tab(right_widget)
