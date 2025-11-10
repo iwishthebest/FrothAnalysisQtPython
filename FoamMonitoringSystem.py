@@ -1515,7 +1515,7 @@ class TankGraphicWidget(QWidget):
         self.setMaximumSize(150, 120)
 
         # 模拟液位高度 (0.0 - 1.0)
-        self.water_level = 0.6 + tank_id * 0.1
+        self.water_level = 0.6
 
     def paintEvent(self, event):
         painter = QPainter(self)
