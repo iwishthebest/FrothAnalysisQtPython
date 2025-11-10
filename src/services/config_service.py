@@ -1,105 +1,139 @@
-import os
+"""
+配置管理服务
+统一管理系统配置，支持热更新和配置验证
+"""
+
 import json
-from cryptography.fernet import Fernet
-from typing import Dict, Any, List
-
-from config.settings import (
-    CameraConfig, TankConfig, UIConfig, NetworkConfig, SystemConfig
-)
-from src.services.logging_service import SystemLogger
+import yaml
+from pathlib import Path
+from typing import Dict, Any, Optional
+from threading import RLock
+from . import BaseService, ServiceStatus, ServiceError
 
 
-class ConfigService:
-    """配置服务"""
+class ConfigService(BaseService):
+    """配置管理服务"""
 
-    def __init__(self, config_file: str = "config.json", key_file: str = "secret.key"):
-        self.config_file = config_file
-        self.key_file = key_file
-        self.cipher: Optional[Fernet] = None
-        self.system_config: Optional[SystemConfig] = None
-        self.logger = SystemLogger()
+    def __init__(self, config_dir: str = "config"):
+        super().__init__("config_service")
+        self.config_dir = Path(config_dir)
+        self.config_dir.mkdir(exist_ok=True)
 
-    def initialize(self):
-        """初始化配置服务"""
-        self.cipher = self._setup_encryption()
-        self.system_config = self._load_config()
+        self._config: Dict[str, Any] = {}
+        self._lock = RLock()
+        self.config_file = self.config_dir / "system_config.json"
 
-    def _setup_encryption(self) -> Fernet:
-        """设置加密"""
-        if os.path.exists(self.key_file):
-            with open(self.key_file, 'rb') as f:
-                key = f.read()
-        else:
-            key = Fernet.generate_key()
-            with open(self.key_file, 'wb') as f:
-                f.write(key)
-        return Fernet(key)
+        # 默认配置
+        self._default_config = {
+            "system": {
+                "name": "铅浮选监测系统",
+                "version": "1.0.0",
+                "debug": False
+            },
+            "camera": {
+                "max_retries": 3,
+                "timeout": 30,
+                "resolution": "1920x1080"
+            },
+            "opc": {
+                "server_url": "opc.tcp://localhost:4840",
+                "update_interval": 1000
+            }
+        }
 
-    def _load_config(self) -> SystemConfig:
-        """加载配置"""
-        if not os.path.exists(self.config_file):
-            return self._create_default_config()
+    def start(self) -> bool:
+        """启动配置服务"""
+        try:
+            self.status = ServiceStatus.STARTING
+            self._load_config()
+            self.status = ServiceStatus.RUNNING
+            return True
+        except Exception as e:
+            self.status = ServiceStatus.ERROR
+            raise ServiceError(f"配置服务启动失败: {e}")
+
+    def stop(self) -> bool:
+        """停止配置服务"""
+        self.status = ServiceStatus.STOPPING
+        self._save_config()
+        self.status = ServiceStatus.STOPPED
+        return True
+
+    def restart(self) -> bool:
+        """重启配置服务"""
+        self.stop()
+        return self.start()
+
+    def _load_config(self) -> None:
+        """加载配置文件"""
+        with self._lock:
+            if self.config_file.exists():
+                try:
+                    with open(self.config_file, 'r', encoding='utf-8') as f:
+                        loaded_config = json.load(f)
+                    self._config = self._deep_merge(
+                        self._default_config,
+                        loaded_config
+                    )
+                except Exception as e:
+                    print(f"加载配置文件失败，使用默认配置: {e}")
+                    self._config = self._default_config.copy()
+            else:
+                self._config = self._default_config.copy()
+                self._save_config()
+
+    def _deep_merge(self, base: Dict, update: Dict) -> Dict:
+        """深度合并字典"""
+        result = base.copy()
+
+        for key, value in update.items():
+            if (key in result and isinstance(result[key], dict)
+                    and isinstance(value, dict)):
+                result[key] = self._deep_merge(result[key], value)
+            else:
+                result[key] = value
+        return result
+
+    def _save_config(self) -> None:
+        """保存配置到文件"""
+        with self._lock:
+            try:
+                with open(self.config_file, 'w', encoding='utf-8') as f:
+                    json.dump(self._config, f, indent=2, ensure_ascii=False)
+            except Exception as e:
+                raise ServiceError(f"保存配置失败: {e}")
+
+    def get(self, key: str, default: Any = None) -> Any:
+        """获取配置值"""
+        keys = key.split('.')
+        value = self._config
 
         try:
-            with open(self.config_file, 'r', encoding='utf-8') as f:
-                encrypted_data = f.read()
-                decrypted_data = self.cipher.decrypt(encrypted_data.encode()).decode()
-                config_dict = json.loads(decrypted_data)
-                return self._dict_to_system_config(config_dict)
-        except Exception as e:
-            self.logger.error(f"加载配置失败: {e}，使用默认配置")
-            return self._create_default_config()
+            for k in keys:
+                value = value[k]
+            return value
+        except (KeyError, TypeError):
+            return default
 
-    def _create_default_config(self) -> SystemConfig:
-        """创建默认配置"""
-        default_config = SystemConfig(
-            cameras=[
-                CameraConfig(
-                    name="铅快粗泡沫相机",
-                    rtsp_url="rtsp://admin:fkqxk010@192.168.1.101:554/Streaming/Channels/101",
-                    position="粗选",
-                    enabled=True
-                )
-            ],
-            tanks=[
-                TankConfig(
-                    name="铅快粗槽",
-                    type="粗选",
-                    color="#3498db",
-                    level_range=(0.5, 2.5),
-                    dosing_range=(0, 200)
-                )
-            ],
-            ui=UIConfig(),
-            network=NetworkConfig()
-        )
-        self.save_config(default_config)
-        return default_config
+    def set(self, key: str, value: Any, save: bool = True) -> bool:
+        """设置配置值"""
+        with self._lock:
+            keys = key.split('.')
+            config = self._config
 
-    def save_config(self, config: SystemConfig):
-        """保存配置"""
-        try:
-            config_dict = self._system_config_to_dict(config)
-            json_data = json.dumps(config_dict, ensure_ascii=False, indent=2)
-            encrypted_data = self.cipher.encrypt(json_data.encode())
+            # 导航到最后一个键的父级
+            for k in keys[:-1]:
+                if k not in config:
+                    config[k] = {}
+                config = config[k]
 
-            with open(self.config_file, 'w', encoding='utf-8') as f:
-                f.write(encrypted_data.decode())
-        except Exception as e:
-            self.logger.error(f"保存配置失败: {e}")
+            config[keys[-1]] = value
 
-    def get_camera_configs(self) -> List[CameraConfig]:
-        """获取相机配置"""
-        return self.system_config.cameras
+            if save:
+                self._save_config()
 
-    def get_tank_configs(self) -> List[TankConfig]:
-        """获取浮选槽配置"""
-        return self.system_config.tanks
+            return True
 
-    def get_ui_config(self) -> UIConfig:
-        """获取界面配置"""
-        return self.system_config.ui
-
-    def get_network_config(self) -> NetworkConfig:
-        """获取网络配置"""
-        return self.system_config.network
+    def get_all_config(self) -> Dict[str, Any]:
+        """获取所有配置"""
+        return self._config.copy()
