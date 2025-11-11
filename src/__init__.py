@@ -4,7 +4,6 @@
 这是项目的根包，包含整个应用程序的主要模块和组件。
 """
 
-import os
 import sys
 from pathlib import Path
 
@@ -68,8 +67,6 @@ class ProjectConfig:
 
 # 导出主要模块
 try:
-    # 视图层
-    from .views import FoamMonitoringSystem
 
     # 工具模块
     from .utils.system_logger import SystemLogger
@@ -83,9 +80,6 @@ except ImportError as e:
 
 # 导出主要类
 __all__ = [
-    'FoamMonitoringSystem',
-    'SystemLogger',
-    'RTSPStreamReader',
     'ProjectConfig'
 ]
 

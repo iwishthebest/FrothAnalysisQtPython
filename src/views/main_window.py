@@ -5,11 +5,8 @@ from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QIcon, QFont
 
 from .components.status_bar import StatusBar
-from .pages.monitoring_page import MonitoringPage
-from .pages.control_page import ControlPage
-from .pages.history_page import HistoryPage
-from .pages.settings_page import SettingsPage
-from system_logger import SystemLogger
+
+from src.services.logging_service import get_logging_service, LogLevel, LogCategory
 
 
 class FoamMonitoringSystem(QMainWindow):
@@ -17,7 +14,7 @@ class FoamMonitoringSystem(QMainWindow):
 
     def __init__(self):
         super().__init__()
-        self.logger = SystemLogger()
+        self.logger = get_logging_service()
         self.setup_ui()
         self.setup_connections()
 
@@ -108,7 +105,7 @@ class FoamMonitoringSystem(QMainWindow):
         else:
             self.left_stack.setCurrentWidget(self.video_page)
 
-        self.logger.add_log(f"切换到{current_tab}界面", "INFO")
+        self.logger.info(f"切换到{current_tab}界面")
 
     def update_data(self):
         """更新数据"""
@@ -123,7 +120,7 @@ class FoamMonitoringSystem(QMainWindow):
             self.status_bar.update_display()
 
         except Exception as e:
-            self.logger.add_log(f"更新数据时出错: {e}", "ERROR")
+            self.logger.info(f"更新数据时出错: {e}")
 
     def update_status(self):
         """更新系统状态"""
@@ -133,5 +130,5 @@ class FoamMonitoringSystem(QMainWindow):
         """处理窗口关闭事件"""
         self.data_timer.stop()
         self.status_timer.stop()
-        self.logger.add_log("系统已关闭", "INFO")
+        self.logger.info("系统已关闭")
         super().closeEvent(event)
