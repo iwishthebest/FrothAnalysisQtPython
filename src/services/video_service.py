@@ -19,7 +19,7 @@ class VideoService:
         self._initialize_cameras()
 
     @staticmethod
-    def _get_camera_configs(self) -> List[Dict[str, Any]]:
+    def _get_camera_configs() -> List[Dict[str, Any]]:
         """获取相机配置"""
         return [
             {
@@ -68,13 +68,13 @@ class VideoService:
                 )
                 if reader.start():
                     self.rtsp_readers[i] = reader
-                    self.logger.info(f"相机 {i} ({config['name']}) 初始化成功", LogCategory.VIDEO)
+                    self.logger.info(f"相机 {i} ({config.name}) 初始化成功", LogCategory.VIDEO)
                 else:
-                    self.logger.warning(f"相机 {i} ({config['name']}) 初始化失败，切换到模拟模式", LogCategory.VIDEO)
+                    self.logger.warning(f"相机 {i} ({config.name}) 初始化失败，切换到模拟模式", LogCategory.VIDEO)
                     self.simulation_mode = True
                     break
             else:
-                self.logger.info(f"相机 {i} ({config['name']}) 使用模拟模式", LogCategory.VIDEO)
+                self.logger.info(f"相机 {i} ({config.name}) 使用模拟模式", LogCategory.VIDEO)
 
     def capture_frame(self, camera_index: int, timeout: int = 2) -> Optional[np.ndarray]:
         """
@@ -107,21 +107,21 @@ class VideoService:
         width, height = 640, 480
 
         # 创建基础图像
-        frame = np.full((height, width, 3), config["simulation_color"], dtype=np.uint8)
+        frame = np.full((height, width, 3), config.simulation_color, dtype=np.uint8)
 
         # 添加噪声
         noise = np.random.randint(0, 30, (height, width, 3), dtype=np.uint8)
         frame = cv2.add(frame, noise)
 
         # 添加标签文本
-        cv2.putText(frame, config["name"], (50, 50),
+        cv2.putText(frame, config.name, (50, 50),
                     cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
 
         # 添加泡沫气泡
-        for _ in range(config["bubble_count"]):
-            x, y = np.random.randint(0, width), np.random.randint(0, height // 2)
-            radius = np.random.randint(*config["bubble_radius_range"])
-            cv2.circle(frame, (x, y), radius, (255, 255, 255), -1)
+        # for _ in range(config["bubble_count"]):
+        #     x, y = np.random.randint(0, width), np.random.randint(0, height // 2)
+        #     radius = np.random.randint(*config["bubble_radius_range"])
+        #     cv2.circle(frame, (x, y), radius, (255, 255, 255), -1)
 
         return frame
 

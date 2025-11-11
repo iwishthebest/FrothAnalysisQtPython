@@ -3,7 +3,7 @@
 """
 
 from dataclasses import dataclass, asdict
-from typing import Dict, Any
+from typing import Dict, Any, Tuple
 from enum import Enum
 
 
@@ -18,9 +18,11 @@ class CameraPosition(Enum):
 @dataclass
 class CameraConfig:
     """相机配置"""
+    camera_index: int
     name: str
     rtsp_url: str
     position: CameraPosition
+    simulation_color: Tuple[int, int, int]
     enabled: bool = True
     timeout: int = 10
     reconnect_interval: int = 5
@@ -61,27 +63,35 @@ class CameraConfig:
         """创建默认相机配置列表"""
         return [
             cls(
+                camera_index=0,
                 name="铅快粗泡沫相机",
                 rtsp_url="rtsp://admin:fkqxk010@192.168.1.101:554/Streaming/Channels/101",
                 position=CameraPosition.LEAD_ROUGH,
-                enabled=True
+                enabled=False,
+                simulation_color=(100, 150, 200)  # 蓝色调
             ),
             cls(
+                camera_index=1,
                 name="铅精一泡沫相机",
                 rtsp_url="rtsp://admin:fkqxk010@192.168.1.102:554/Streaming/Channels/101",
                 position=CameraPosition.LEAD_CLEAN_1,
-                enabled=False
+                enabled=False,
+                simulation_color=(200, 200, 100),  # 黄色调
             ),
             cls(
+                camera_index=2,
                 name="铅精二泡沫相机",
                 rtsp_url="rtsp://admin:fkqxk010@192.168.1.103:554/Streaming/Channels/101",
                 position=CameraPosition.LEAD_CLEAN_2,
-                enabled=False
+                enabled=False,
+                simulation_color=(150, 100, 100),  # 红色调
             ),
             cls(
+                camera_index=3,
                 name="铅精三泡沫相机",
                 rtsp_url="rtsp://admin:fkqxk010@192.168.1.104:554/Streaming/Channels/101",
                 position=CameraPosition.LEAD_CLEAN_3,
-                enabled=False
+                enabled=False,
+                simulation_color=(100, 200, 150),  # 绿色调
             )
         ]

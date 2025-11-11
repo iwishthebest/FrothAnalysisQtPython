@@ -19,7 +19,7 @@ class VideoDisplayWidget(QWidget):
         self.video_service = get_video_service()
         self.setup_ui()
         self.setup_video_simulation()
-        self.setup_video_capture()
+        # self.setup_video_capture()
 
     def setup_ui(self):
         """初始化用户界面"""
@@ -119,7 +119,7 @@ class VideoDisplayWidget(QWidget):
         """更新视频帧显示"""
         # self.logger.info("test","VIDEO")
         for i, video_info in enumerate(self.video_labels):
-            frame = self.generate_simulated_frame(i, video_info['config'])
+            # frame = self.generate_simulated_frame(i, video_info['config'])
             frame = self.video_service.capture_frame(i)
             self.display_frame(video_info['video_label'], frame)
 
