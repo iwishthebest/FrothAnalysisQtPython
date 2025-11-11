@@ -57,7 +57,7 @@ class MonitoringPage(QWidget):
         return widget
 
     @staticmethod
-    def create_metric_item(self, title, value, color):
+    def create_metric_item(title, value, color):
         """创建单个指标项"""
         widget = QWidget()
         layout = QVBoxLayout(widget)

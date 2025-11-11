@@ -3,7 +3,7 @@ import re
 import requests
 from typing import Dict, List, Optional, Any
 from logging_service import get_logging_service
-from ..common.constants import LogCategory
+from src.common.constants import LogCategory
 
 
 class OPCService:
@@ -146,8 +146,14 @@ class OPCService:
             test_tags = ["KYFX.kyfx_gqxk_grade_Pb"]
             data = self.get_process_data(test_tags)
             return len(data) > 0
-        except Exception:
-            return False
+        except requests.exceptions.RequestException as e:
+            self.logger.error(f"请求OPC服务器时发生网络错误: {e}", LogCategory.OPC)
+        except ValueError as e:
+            self.logger.error(f"处理数据时发生值错误: {e}", LogCategory.OPC)
+        except Exception as e:
+            # 对于其他未预见的异常，仍然保持捕获但记录详细信息
+            self.logger.error(f"测试OPC连接时遇到未知错误: {e}", LogCategory.OPC)
+        return False
 
     def set_timeout(self, timeout: int):
         """设置请求超时时间"""
@@ -165,3 +171,6 @@ def get_opc_service() -> OPCService:
     if _opc_service_instance is None:
         _opc_service_instance = OPCService()
     return _opc_service_instance
+
+OPCService = get_opc_service()
+OPCService.test_connection()

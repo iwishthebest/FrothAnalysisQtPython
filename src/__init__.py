@@ -65,19 +65,6 @@ class ProjectConfig:
         return base_path.joinpath(*subpaths)
 
 
-# 导出主要模块
-try:
-
-    # 工具模块
-    from .utils.system_logger import SystemLogger
-    from .utils.process_data import capture_frame_simulate, get_process_data
-
-    # 模型模块
-    from .models.rtsp_stream_reader import RTSPStreamReader
-
-except ImportError as e:
-    print(f"导入模块时出错: {e}")
-
 # 导出主要类
 __all__ = [
     'ProjectConfig'
