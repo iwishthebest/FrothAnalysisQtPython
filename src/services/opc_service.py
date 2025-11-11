@@ -44,10 +44,10 @@ class OPCService:
             return tag_list
 
         except FileNotFoundError:
-            self.logger.add_log(f"标签文件不存在: {self.tag_list_file}", "ERROR")
+            self.logger.error(f"标签文件不存在: {self.tag_list_file}", LogCategory.OPC)
             return []
         except Exception as e:
-            self.logger.add_log(f"读取标签列表失败: {e}", "ERROR")
+            self.logger.error(f"读取标签列表失败: {e}", LogCategory.OPC)
             return []
 
     @staticmethod
@@ -77,7 +77,7 @@ class OPCService:
                 tag_list = self.get_tag_list()
 
             if not tag_list:
-                self.logger.add_log("标签列表为空，无法获取数据", "WARNING")
+                self.logger.error("标签列表为空，无法获取数据", "WARNING")
                 return {}
 
             tag_param = ",".join(tag_list)
@@ -105,21 +105,21 @@ class OPCService:
                             'quality': 'Bad'
                         }
 
-                self.logger.add_log(f"成功获取 {len(values)} 个数据点", "DEBUG")
+                self.logger.debug(f"成功获取 {len(values)} 个数据点", LogCategory.OPC)
                 return values
 
             else:
-                self.logger.add_log(f"OPC请求失败，状态码：{response.status_code}", "ERROR")
+                self.logger.error(f"OPC请求失败，状态码：{response.status_code}", LogCategory.OPC)
                 return {}
 
         except requests.exceptions.Timeout:
-            self.logger.add_log("OPC请求超时", "ERROR")
+            self.logger.error("OPC请求超时", LogCategory.OPC)
             return {}
         except requests.exceptions.ConnectionError:
-            self.logger.add_log("无法连接到OPC服务器", "ERROR")
+            self.logger.error("无法连接到OPC服务器", LogCategory.OPC)
             return {}
         except Exception as e:
-            self.logger.add_log(f"获取工艺数据时异常：{e}", "ERROR")
+            self.logger.error(f"获取工艺数据时异常：{e}", LogCategory.OPC)
             return {}
 
     def get_specific_tag_value(self, tag_name: str) -> Optional[float]:
@@ -152,7 +152,7 @@ class OPCService:
     def set_timeout(self, timeout: int):
         """设置请求超时时间"""
         self._timeout = timeout
-        self.logger.add_log(f"设置OPC请求超时为 {timeout} 秒", "INFO")
+        self.logger.info(f"设置OPC请求超时为 {timeout} 秒", LogCategory.OPC)
 
 
 # 单例模式实例

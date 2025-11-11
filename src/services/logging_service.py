@@ -7,7 +7,7 @@ import logging
 import logging.handlers
 from pathlib import Path
 from datetime import datetime
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Union
 from PySide6.QtCore import QObject, Signal
 
 from ..common.exceptions import ServiceError
@@ -99,22 +99,25 @@ class LoggingService(QObject):
         except Exception as e:
             raise ServiceError(f"设置日志系统失败: {e}")
 
-    def log(self, message: str, level: LogLevel = LogLevel.INFO, category: str = LogCategory.SYSTEM):
+    def log(self, message: str, level: LogLevel = LogLevel.INFO, category: Union[str, LogCategory] = LogCategory.SYSTEM):
         """
         记录日志
 
         Args:
             message: 日志消息
             level: 日志级别
-            category: 日志类别
+            category: 日志类别（字符串或枚举）
         """
         try:
+            # 将category转换为字符串
+            category_str = category.value if isinstance(category, LogCategory) else str(category)
+
             timestamp = datetime.now()
             log_entry = {
                 'timestamp': timestamp,
                 'message': message,
                 'level': level,
-                'category': category
+                'category': category_str
             }
 
             # 添加到内存存储
@@ -130,16 +133,16 @@ class LoggingService(QObject):
 
             # 使用Python日志系统记录
             log_method = getattr(self.logger, level.value.lower())
-            log_method(f"[{category}] {message}")
+            log_method(f"[{category_str}] {message}")
 
             # 发射信号
-            self.log_added.emit(message, level.value, category)
+            self.log_added.emit(message, level.value, category_str)
 
         except Exception as e:
             print(f"记录日志时出错: {e}")
 
     @staticmethod
-    def _format_log_entry(log_entry: Dict[str, Any]) -> str:
+    def _format_log_entry(self, log_entry: Dict[str, Any]) -> str:
         """格式化日志条目"""
         timestamp = log_entry['timestamp'].strftime("%Y-%m-%d %H:%M:%S")
         level = log_entry['level'].value
@@ -148,23 +151,23 @@ class LoggingService(QObject):
 
         return f"[{timestamp}] [{level}] [{category}] {message}"
 
-    def debug(self, message: str, category: str = LogCategory.SYSTEM):
+    def debug(self, message: str, category: Union[str, LogCategory] = LogCategory.SYSTEM):
         """记录调试级别日志"""
         self.log(message, LogLevel.DEBUG, category)
 
-    def info(self, message: str, category: str = LogCategory.SYSTEM):
+    def info(self, message: str, category: Union[str, LogCategory] = LogCategory.SYSTEM):
         """记录信息级别日志"""
         self.log(message, LogLevel.INFO, category)
 
-    def warning(self, message: str, category: str = LogCategory.SYSTEM):
+    def warning(self, message: str, category: Union[str, LogCategory] = LogCategory.SYSTEM):
         """记录警告级别日志"""
         self.log(message, LogLevel.WARNING, category)
 
-    def error(self, message: str, category: str = LogCategory.SYSTEM):
+    def error(self, message: str, category: Union[str, LogCategory] = LogCategory.SYSTEM):
         """记录错误级别日志"""
         self.log(message, LogLevel.ERROR, category)
 
-    def critical(self, message: str, category: str = LogCategory.SYSTEM):
+    def critical(self, message: str, category: Union[str, LogCategory] = LogCategory.SYSTEM):
         """记录严重错误级别日志"""
         self.log(message, LogLevel.CRITICAL, category)
 
@@ -235,11 +238,11 @@ class LoggingService(QObject):
                     f.write(formatted_entry + "\n")
 
             self.log_exported.emit(str(filepath))
-            self.info(f"日志已导出到: {filepath}", LogCategory.SYSTEM.value)
+            self.info(f"日志已导出到: {filepath}", LogCategory.SYSTEM)
             return True
 
         except Exception as e:
-            self.error(f"导出日志失败: {e}", LogCategory.SYSTEM.value)
+            self.error(f"导出日志失败: {e}", LogCategory.SYSTEM)
             return False
 
     def set_log_level(self, level: LogLevel):
@@ -251,7 +254,7 @@ class LoggingService(QObject):
         """
         if level in self.level_mapping:
             self.logger.setLevel(self.level_mapping[level])
-            self.info(f"日志级别设置为: {level.value}", LogCategory.SYSTEM.value)
+            self.info(f"日志级别设置为: {level.value}", LogCategory.SYSTEM)
 
     def get_log_statistics(self) -> Dict[str, int]:
         """
