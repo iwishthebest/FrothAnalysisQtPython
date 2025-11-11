@@ -103,6 +103,7 @@ class ServiceNotRegisteredError(Exception):
 # 全局服务定位器实例
 _service_locator = None
 
+
 def get_service_locator() -> ServiceLocator:
     """获取全局服务定位器实例"""
     global _service_locator
@@ -110,13 +111,16 @@ def get_service_locator() -> ServiceLocator:
         _service_locator = ServiceLocator()
     return _service_locator
 
+
 def register_service(service_name: str, service_instance: Any) -> None:
     """注册服务到全局定位器"""
     get_service_locator().register(service_name, service_instance)
 
+
 def get_service(service_name: str) -> Any:
     """从全局定位器获取服务"""
     return get_service_locator().get(service_name)
+
 
 def resolve_service(service_type: Type) -> Any:
     """从全局定位器解析服务"""

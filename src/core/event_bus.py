@@ -33,10 +33,10 @@ class EventBus:
         self._async_mode = False
 
     def subscribe(self,
-                 event_type: str,
-                 callback: Callable,
-                 priority: EventPriority = EventPriority.NORMAL,
-                 filter_func: Callable = None) -> None:
+                  event_type: str,
+                  callback: Callable,
+                  priority: EventPriority = EventPriority.NORMAL,
+                  filter_func: Callable = None) -> None:
         """订阅事件"""
         with self._lock:
             if event_type not in self._subscriptions:

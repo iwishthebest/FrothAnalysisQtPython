@@ -36,6 +36,7 @@ COMPONENT_CATEGORIES = {
     'status': ['StatusBar']
 }
 
+
 def get_available_components():
     """获取所有可用组件列表"""
     return {
@@ -55,6 +56,7 @@ def get_available_components():
         }
     }
 
+
 def create_component(component_name, *args, **kwargs):
     """动态创建组件实例"""
     components = {
@@ -71,6 +73,7 @@ def create_component(component_name, *args, **kwargs):
     else:
         raise ValueError(f"未知组件: {component_name}")
 
+
 # 包初始化函数
 def initialize_components():
     """初始化组件包"""
@@ -81,6 +84,7 @@ def initialize_components():
     available_comps = get_available_components()
     for category, comps in available_comps.items():
         print(f"{category}: {len(comps)} 个组件")
+
 
 # 当包被导入时自动初始化
 if __name__ != "__main__":

@@ -58,13 +58,16 @@ PAGE_CONFIG = {
     }
 }
 
+
 def get_page_info(page_name):
     """获取页面信息"""
     return PAGE_CONFIG.get(page_name, {})
 
+
 def get_all_pages():
     """获取所有页面信息"""
     return PAGE_CONFIG
+
 
 def create_page(page_name, *args, **kwargs):
     """动态创建页面实例"""
@@ -74,9 +77,11 @@ def create_page(page_name, *args, **kwargs):
     else:
         raise ValueError(f"未知页面: {page_name}")
 
+
 def get_ordered_pages():
     """按顺序获取页面列表"""
     return sorted(PAGE_CONFIG.items(), key=lambda x: x[1]['order'])
+
 
 # 包初始化函数
 def initialize_pages():
@@ -88,6 +93,7 @@ def initialize_pages():
     pages = get_ordered_pages()
     for page_key, page_info in pages:
         print(f"- {page_info['name']}: {page_info['description']}")
+
 
 # 当包被导入时自动初始化
 if __name__ != "__main__":

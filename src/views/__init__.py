@@ -40,12 +40,14 @@ try:
 except ImportError as e:
     print(f"导入视图组件时出错: {e}")
 
+
 # 包初始化函数
 def initialize_views():
     """初始化视图层组件"""
     print("铅浮选监测系统视图层初始化完成")
     print(f"版本: {__version__}")
     print(f"描述: {__description__}")
+
 
 # 当包被导入时自动初始化
 if __name__ != "__main__":
