@@ -2,7 +2,7 @@ import sys
 from PySide6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout,
                                QHBoxLayout, QStackedWidget)
 from PySide6.QtCore import Qt, QTimer
-from PySide6.QtGui import QIcon, QFont
+from PySide6.QtGui import QIcon, QFont, QKeyEvent
 
 from .components.status_bar import StatusBar
 
@@ -17,6 +17,34 @@ class FoamMonitoringSystem(QMainWindow):
         self.logger = get_logging_service()
         self.setup_ui()
         self.setup_connections()
+
+    def keyPressEvent(self, event: QKeyEvent):
+        """重写键盘按下事件处理"""
+        if event.key() == Qt.Key.Key_F5:
+            # 按下F5键时重载QSS
+            self.reload_qss()
+            event.accept()  # 标记事件已处理
+        else:
+            super().keyPressEvent(event)  # 其他按键按默认方式处理
+
+    def load_stylesheet(self):
+        """加载样式表"""
+        try:
+            with open("resources/styles/diy.qss", "r", encoding="utf-8") as f:
+                stylesheet = f.read()
+                self.setStyleSheet(stylesheet)
+        except FileNotFoundError:
+            # 如果文件不存在，使用内置的样式字符串
+            tech_stylesheet = """
+            /* 这里放置上面的样式表内容 */
+            """
+            self.setStyleSheet(tech_stylesheet)
+
+    def reload_qss(self):
+        """重载QSS样式表"""
+        self.load_stylesheet()
+        # self.status_label.setText("样式已重载 (F5)")
+        self.logger.info("reload qss", "SYSTEM")
 
     def setup_ui(self):
         """初始化用户界面"""
