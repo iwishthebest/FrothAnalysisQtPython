@@ -44,11 +44,7 @@ class FoamMonitoringApplication:
             self.qapp.styleHints().setColorScheme(Qt.ColorScheme.Light)
 
             # 创建主窗口
-            self.main_window = FoamMonitoringSystem(
-                # di_container=self.di_container,
-                # event_bus=self.event_bus,
-                # service_locator=self.service_locator
-            )
+            self.main_window = FoamMonitoringSystem()
 
             # 发布应用程序初始化完成事件
             self.event_bus.publish('application.initialized')

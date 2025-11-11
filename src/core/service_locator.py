@@ -2,7 +2,7 @@
 服务定位器 - 提供全局服务访问点
 """
 
-from typing import Any, Dict, Type, Optional
+from typing import Any, Type, Optional
 import threading
 
 

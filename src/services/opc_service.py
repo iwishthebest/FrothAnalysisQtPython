@@ -2,8 +2,8 @@ import csv
 import re
 import requests
 from typing import Dict, List, Optional, Any
-import logging
-from system_logger import SystemLogger
+from logging_service import get_logging_service
+from ..common.constants import LogCategory
 
 
 class OPCService:
@@ -20,7 +20,7 @@ class OPCService:
         """
         self.opc_url = opc_url
         self.tag_list_file = tag_list_file
-        self.logger = SystemLogger()
+        self.logger = get_logging_service()
         self._tag_cache = None
         self._timeout = 10
 
@@ -40,7 +40,7 @@ class OPCService:
                         tag_list.append(with_prefix)
 
             self._tag_cache = tag_list
-            self.logger.add_log(f"已加载 {len(tag_list)} 个标签", "INFO")
+            self.logger.info(f"已加载 {len(tag_list)} 个标签", LogCategory.OPC)
             return tag_list
 
         except FileNotFoundError:
@@ -50,7 +50,8 @@ class OPCService:
             self.logger.add_log(f"读取标签列表失败: {e}", "ERROR")
             return []
 
-    def _add_prefix(self, tag_name: str) -> str:
+    @staticmethod
+    def _add_prefix(tag_name: str) -> str:
         """为标签添加前缀"""
         if tag_name.startswith('yj_'):
             return f'YJ.{tag_name}'

@@ -138,7 +138,8 @@ class LoggingService(QObject):
         except Exception as e:
             print(f"记录日志时出错: {e}")
 
-    def _format_log_entry(self, log_entry: Dict[str, Any]) -> str:
+    @staticmethod
+    def _format_log_entry(log_entry: Dict[str, Any]) -> str:
         """格式化日志条目"""
         timestamp = log_entry['timestamp'].strftime("%Y-%m-%d %H:%M:%S")
         level = log_entry['level'].value
