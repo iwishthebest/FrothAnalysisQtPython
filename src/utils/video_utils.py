@@ -16,17 +16,17 @@ class RTSPStreamReader:
         self.is_running = False
         self.cap = None
         self.frame_queue = Queue(maxsize=1)
-        self.logger = self._setup_logger()
+        # self.logger = self._setup_logger()
 
-    @staticmethod
-    def _setup_logger():
-        logger = logging.getLogger('RTSP_Reader')
-        logger.setLevel(logging.INFO)
-        handler = logging.StreamHandler()
-        formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-        handler.setFormatter(formatter)
-        logger.addHandler(handler)
-        return logger
+    # @staticmethod
+    # def _setup_logger():
+    #     logger = logging.getLogger('RTSP_Reader')
+    #     logger.setLevel(logging.INFO)
+    #     handler = logging.StreamHandler()
+    #     formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    #     handler.setFormatter(formatter)
+    #     logger.addHandler(handler)
+    #     return logger
 
     def _connect(self):
         """建立RTSP连接"""
@@ -38,21 +38,21 @@ class RTSPStreamReader:
             self.cap.set(cv2.CAP_PROP_READ_TIMEOUT_MSEC, 10000)
 
             if not self.cap.isOpened():
-                self.logger.error("无法打开RTSP流")
+                # self.logger.error("无法打开RTSP流")
                 return False
 
             # 测试读取一帧
             ret, frame = self.cap.read()
             if not ret:
-                self.logger.error("无法从RTSP流读取帧")
+                # self.logger.error("无法从RTSP流读取帧")
                 return False
 
             self.retry_count = 0
-            self.logger.info("RTSP连接成功")
+#             self.logger.info("RTSP连接成功")
             return True
 
         except Exception as e:
-            self.logger.error(f"连接异常: {e}")
+#             self.logger.error(f"连接异常: {e}")
             return False
 
     def _read_frames(self):
@@ -60,7 +60,7 @@ class RTSPStreamReader:
         while self.is_running:
             try:
                 if self.cap is None or not self.cap.isOpened():
-                    self.logger.warning("连接断开，尝试重连...")
+#                     self.logger.warning("连接断开，尝试重连...")
                     if not self._reconnect():
                         break
                     continue
@@ -68,7 +68,7 @@ class RTSPStreamReader:
                 ret, frame = self.cap.read()
 
                 if not ret:
-                    self.logger.warning("读取帧失败，连接可能已断开")
+#                     self.logger.warning("读取帧失败，连接可能已断开")
                     self.cap.release()
                     self.cap = None
                     continue
@@ -86,7 +86,7 @@ class RTSPStreamReader:
                 self.frame_queue.put(frame)
 
             except Exception as e:
-                self.logger.error(f"读取帧时发生异常: {e}")
+#                 self.logger.error(f"读取帧时发生异常: {e}")
                 if self.cap:
                     self.cap.release()
                     self.cap = None
@@ -95,11 +95,11 @@ class RTSPStreamReader:
     def _reconnect(self):
         """重连机制"""
         if self.retry_count >= self.max_retries:
-            self.logger.error("达到最大重试次数，停止重连")
+#             self.logger.error("达到最大重试次数，停止重连")
             return False
 
         self.retry_count += 1
-        self.logger.info(f"尝试重连 ({self.retry_count}/{self.max_retries})")
+#         self.logger.info(f"尝试重连 ({self.retry_count}/{self.max_retries})")
 
         time.sleep(self.reconnect_interval)
         return self._connect()
@@ -114,22 +114,22 @@ class RTSPStreamReader:
     def set_window_size(self, width, height):
         """动态设置窗口大小"""
         self.window_size = (width, height)
-        self.logger.info(f"窗口大小设置为: {width}x{height}")
+#         self.logger.info(f"窗口大小设置为: {width}x{height}")
 
     def start(self):
         """启动流读取"""
         if self.is_running:
-            self.logger.warning("流读取已在运行中")
+#             self.logger.warning("流读取已在运行中")
             return False
 
         if not self._connect():
-            self.logger.error("初始连接失败")
+#             self.logger.error("初始连接失败")
             return False
 
         self.is_running = True
         self.thread = threading.Thread(target=self._read_frames, daemon=True)
         self.thread.start()
-        self.logger.info("RTSP流读取已启动")
+#         self.logger.info("RTSP流读取已启动")
         return True
 
     def stop(self):
@@ -137,7 +137,7 @@ class RTSPStreamReader:
         self.is_running = False
         if self.cap:
             self.cap.release()
-        self.logger.info("RTSP流读取已停止")
+#         self.logger.info("RTSP流读取已停止")
 
 # 使用示例
 def main():
