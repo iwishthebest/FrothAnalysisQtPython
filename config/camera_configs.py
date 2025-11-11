@@ -70,18 +70,18 @@ class CameraConfig:
                 name="铅精一泡沫相机",
                 rtsp_url="rtsp://admin:fkqxk010@192.168.1.102:554/Streaming/Channels/101",
                 position=CameraPosition.LEAD_CLEAN_1,
-                enabled=True
+                enabled=False
             ),
             cls(
                 name="铅精二泡沫相机",
                 rtsp_url="rtsp://admin:fkqxk010@192.168.1.103:554/Streaming/Channels/101",
                 position=CameraPosition.LEAD_CLEAN_2,
-                enabled=True
+                enabled=False
             ),
             cls(
                 name="铅精三泡沫相机",
                 rtsp_url="rtsp://admin:fkqxk010@192.168.1.104:554/Streaming/Channels/101",
                 position=CameraPosition.LEAD_CLEAN_3,
-                enabled=True
+                enabled=False
             )
         ]

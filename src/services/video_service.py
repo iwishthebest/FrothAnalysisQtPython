@@ -1,11 +1,10 @@
 import cv2
 import numpy as np
-import time
-import threading
-from queue import Queue, Empty
-from typing import Optional, Tuple, List, Dict, Any
-from system_logger import SystemLogger
-from RTSPStreamReader import RTSPStreamReader
+from typing import Optional, List, Dict, Any
+from config.camera_configs import CameraConfig
+from src.services.logging_service import get_logging_service
+from src.common.constants import LogCategory
+from src.utils.video_utils import RTSPStreamReader
 
 
 class VideoService:
@@ -13,12 +12,13 @@ class VideoService:
 
     def __init__(self):
         """初始化视频服务"""
-        self.logger = SystemLogger()
-        self.camera_configs = self._get_camera_configs()
+        self.logger = get_logging_service()
+        self.camera_configs = CameraConfig.create_default_configs()
         self.rtsp_readers: Dict[int, RTSPStreamReader] = {}
         self.simulation_mode = False
         self._initialize_cameras()
 
+    @staticmethod
     def _get_camera_configs(self) -> List[Dict[str, Any]]:
         """获取相机配置"""
         return [
@@ -54,24 +54,27 @@ class VideoService:
 
     def _initialize_cameras(self):
         """初始化相机连接"""
-        for i, config in enumerate(self.camera_configs):
+        for i,config in enumerate(self.camera_configs):
+            # 跳过未使用相机
+            if not config.enabled:
+                continue
             if not self.simulation_mode:
                 # 尝试初始化真实相机
                 reader = RTSPStreamReader(
-                    rtsp_url=config["rtsp_url"],
+                    rtsp_url=config.rtsp_url,
                     window_size=(640, 480),
                     reconnect_interval=5,
                     max_retries=10
                 )
                 if reader.start():
                     self.rtsp_readers[i] = reader
-                    self.logger.add_log(f"相机 {i} ({config['name']}) 初始化成功", "INFO")
+                    self.logger.info(f"相机 {i} ({config['name']}) 初始化成功", LogCategory.VIDEO)
                 else:
-                    self.logger.add_log(f"相机 {i} ({config['name']}) 初始化失败，切换到模拟模式", "WARNING")
+                    self.logger.warning(f"相机 {i} ({config['name']}) 初始化失败，切换到模拟模式", LogCategory.VIDEO)
                     self.simulation_mode = True
                     break
             else:
-                self.logger.add_log(f"相机 {i} ({config['name']}) 使用模拟模式", "INFO")
+                self.logger.info(f"相机 {i} ({config['name']}) 使用模拟模式", LogCategory.VIDEO)
 
     def capture_frame(self, camera_index: int, timeout: int = 2) -> Optional[np.ndarray]:
         """
@@ -85,7 +88,7 @@ class VideoService:
             视频帧或None
         """
         if camera_index < 0 or camera_index >= len(self.camera_configs):
-            self.logger.add_log(f"无效的相机索引: {camera_index}", "ERROR")
+            self.logger.error(f"无效的相机索引: {camera_index}", LogCategory.VIDEO)
             return None
 
         try:
@@ -95,7 +98,7 @@ class VideoService:
                 return self.rtsp_readers[camera_index].get_frame(timeout=timeout)
 
         except Exception as e:
-            self.logger.add_log(f"捕获相机 {camera_index} 视频帧时出错: {e}", "ERROR")
+            self.logger.error(f"捕获相机 {camera_index} 视频帧时出错: {e}", LogCategory.VIDEO)
             return None
 
     def _capture_simulated_frame(self, camera_index: int) -> np.ndarray:
@@ -173,7 +176,7 @@ class VideoService:
             是否重新连接成功
         """
         if self.simulation_mode:
-            self.logger.add_log("模拟模式下无法重新连接真实相机", "WARNING")
+            self.logger.warning("模拟模式下无法重新连接真实相机", LogCategory.VIDEO)
             return False
 
         if camera_index in self.rtsp_readers:
@@ -190,10 +193,10 @@ class VideoService:
 
         if reader.start():
             self.rtsp_readers[camera_index] = reader
-            self.logger.add_log(f"相机 {camera_index} 重新连接成功", "INFO")
+            self.logger.info(f"相机 {camera_index} 重新连接成功", LogCategory.VIDEO)
             return True
         else:
-            self.logger.add_log(f"相机 {camera_index} 重新连接失败", "ERROR")
+            self.logger.error(f"相机 {camera_index} 重新连接失败", LogCategory.VIDEO)
             return False
 
     def set_simulation_mode(self, enabled: bool):
@@ -209,9 +212,9 @@ class VideoService:
             for reader in self.rtsp_readers.values():
                 reader.stop()
             self.rtsp_readers.clear()
-            self.logger.add_log("已切换到模拟模式", "INFO")
+            self.logger.info("已切换到模拟模式", LogCategory.VIDEO)
         else:
-            self.logger.add_log("已切换到真实相机模式", "INFO")
+            self.logger.info("已切换到真实相机模式", LogCategory.VIDEO)
             self._initialize_cameras()
 
     def set_camera_resolution(self, camera_index: int, width: int, height: int):
@@ -225,14 +228,14 @@ class VideoService:
         """
         if camera_index in self.rtsp_readers:
             self.rtsp_readers[camera_index].set_window_size(width, height)
-            self.logger.add_log(f"相机 {camera_index} 分辨率设置为 {width}x{height}", "INFO")
+            self.logger.info(f"相机 {camera_index} 分辨率设置为 {width}x{height}", LogCategory.VIDEO)
 
     def cleanup(self):
         """清理资源"""
         for reader in self.rtsp_readers.values():
             reader.stop()
         self.rtsp_readers.clear()
-        self.logger.add_log("视频服务资源已清理", "INFO")
+        self.logger.info("视频服务资源已清理", LogCategory.VIDEO)
 
 
 # 单例模式实例

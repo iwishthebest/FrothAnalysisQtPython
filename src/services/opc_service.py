@@ -2,7 +2,7 @@ import csv
 import re
 import requests
 from typing import Dict, List, Optional, Any
-from logging_service import get_logging_service
+from src.services.logging_service import get_logging_service
 from src.common.constants import LogCategory
 
 

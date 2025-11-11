@@ -5,7 +5,8 @@ from PySide6.QtGui import QPixmap, QImage, QFont
 import cv2
 import numpy as np
 
-from system_logger import SystemLogger
+from src.services.logging_service import get_logging_service
+from src.services.video_service import get_video_service
 
 
 class VideoDisplayWidget(QWidget):
@@ -13,10 +14,12 @@ class VideoDisplayWidget(QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.logger = SystemLogger()
+        self.logger = get_logging_service()
         self.video_labels = []
+        self.video_service = get_video_service()
         self.setup_ui()
         self.setup_video_simulation()
+        self.setup_video_capture()
 
     def setup_ui(self):
         """初始化用户界面"""
@@ -114,8 +117,10 @@ class VideoDisplayWidget(QWidget):
 
     def update_video_frames(self):
         """更新视频帧显示"""
+        # self.logger.info("test","VIDEO")
         for i, video_info in enumerate(self.video_labels):
             frame = self.generate_simulated_frame(i, video_info['config'])
+            frame = self.video_service.capture_frame(i)
             self.display_frame(video_info['video_label'], frame)
 
     def generate_simulated_frame(self, camera_index, config):
@@ -174,7 +179,7 @@ class VideoDisplayWidget(QWidget):
             label.setPixmap(scaled_pixmap)
 
         except Exception as e:
-            self.logger.add_log(f"显示视频帧时出错: {e}", "ERROR")
+            self.logger.error(f"显示视频帧时出错: {e}", "VIDEO")
 
     def update_display(self):
         """更新显示（供外部调用）"""
