@@ -1,373 +1,360 @@
-"""
-控制页面 - 参数设置和过程控制
-"""
-
-from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout,
-                               QGroupBox, QLabel, QSlider, QDoubleSpinBox,
-                               QPushButton, QComboBox, QCheckBox, QTextEdit)
+from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QGroupBox, 
+                               QLabel, QDoubleSpinBox, QComboBox, QPushButton,
+                               QGridLayout, QProgressBar)
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QFont, QPalette, QColor
-import random
+from PySide6.QtGui import QFont
+import numpy as np
 
 
 class ControlPage(QWidget):
-    """控制页面 - 参数设置和过程控制"""
-
+    """控制参数页面 - 包含液位控制、加药量控制等"""
+    
     # 信号定义
-    parameter_changed = Signal(str, object)  # 参数名称, 新值
-    control_mode_changed = Signal(str)       # 控制模式
-    emergency_stop_signal = Signal()          # 紧急停止
-
+    level_setpoint_changed = Signal(int, float)  # 槽ID, 设定值
+    dosing_setpoint_changed = Signal(int, float)  # 槽ID, 设定值
+    reagent_type_changed = Signal(int, str)  # 槽ID, 药剂类型
+    control_mode_changed = Signal(str)  # 控制模式: "auto" 或 "manual"
+    
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.control_mode = "自动"  # 自动/手动
-        self._setup_ui()
-
-    def _setup_ui(self):
+        self.control_mode = "auto"  # 默认自动模式
+        self.setup_ui()
+        self.setup_connections()
+        
+    def setup_ui(self):
         """初始化用户界面"""
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(10, 10, 10, 10)
-        layout.setSpacing(15)
-
+        layout.setContentsMargins(15, 15, 15, 15)
+        layout.setSpacing(20)
+        
         # 标题
-        title_label = QLabel("过程控制面板")
-        title_label.setFont(QFont("Microsoft YaHei", 16, QFont.Weight.Bold))
+        title_label = QLabel("浮选过程智能控制")
+        title_label.setFont(QFont("Microsoft YaHei", 18, QFont.Weight.Bold))
         title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        title_label.setStyleSheet("color: #2c3e50; margin: 10px;")
         layout.addWidget(title_label)
-
+        
         # 控制模式选择
-        layout.addWidget(self._create_mode_selector())
-
-        # 参数控制区域
-        control_layout = QHBoxLayout()
-        control_layout.addWidget(self._create_level_control())
-        control_layout.addWidget(self._create_dosing_control())
-        layout.addLayout(control_layout)
-
-        # PID参数设置
-        layout.addWidget(self._create_pid_control())
-
-        # 高级控制
-        layout.addWidget(self._create_advanced_control())
-
-    def _create_mode_selector(self):
-        """创建模式选择器"""
-        group = QGroupBox("控制模式")
-        layout = QHBoxLayout(group)
-
-        # 自动模式按钮
-        self.auto_btn = QPushButton("自动模式")
-        self.auto_btn.setCheckable(True)
-        self.auto_btn.setChecked(True)
-        self.auto_btn.clicked.connect(self._on_auto_mode)
-        self.auto_btn.setStyleSheet("""
-            QPushButton:checked {
-                background-color: #27ae60;
-                color: white;
-                font-weight: bold;
-            }
-        """)
-
-        # 手动模式按钮
-        self.manual_btn = QPushButton("手动模式")
-        self.manual_btn.setCheckable(True)
-        self.manual_btn.clicked.connect(self._on_manual_mode)
-        self.manual_btn.setStyleSheet("""
-            QPushButton:checked {
-                background-color: #e67e22;
-                color: white;
-                font-weight: bold;
-            }
-        """)
-
-        layout.addWidget(self.auto_btn)
-        layout.addWidget(self.manual_btn)
+        mode_widget = self.create_control_mode_section()
+        layout.addWidget(mode_widget)
+        
+        # 液位控制区域
+        level_widget = self.create_level_control_section()
+        layout.addWidget(level_widget)
+        
+        # 加药量控制区域
+        dosing_widget = self.create_dosing_control_section()
+        layout.addWidget(dosing_widget)
+        
+        # 状态指示区域
+        status_widget = self.create_status_section()
+        layout.addWidget(status_widget)
+        
         layout.addStretch()
-
-        # 模式状态显示
-        self.mode_status = QLabel("自动模式 - 系统自动调节参数")
-        self.mode_status.setStyleSheet("color: #27ae60; font-weight: bold;")
-        layout.addWidget(self.mode_status)
-
-        return group
-
-    def _create_level_control(self):
-        """创建液位控制组件"""
-        group = QGroupBox("液位控制")
-        layout = QVBoxLayout(group)
-
-        # 总体液位控制
-        overall_layout = QHBoxLayout()
-        overall_layout.addWidget(QLabel("总体液位:"))
-
-        self.level_slider = QSlider(Qt.Orientation.Horizontal)
-        self.level_slider.setRange(50, 150)  # 0.5m - 1.5m 的百分比
-        self.level_slider.setValue(100)      # 1.0m
-        self.level_slider.valueChanged.connect(self._on_level_changed)
-        overall_layout.addWidget(self.level_slider)
-
-        self.level_value = QLabel("1.00 m")
-        overall_layout.addWidget(self.level_value)
-        layout.addLayout(overall_layout)
-
-        # 单个槽位控制
-        tanks_layout = QVBoxLayout()
-        tanks = ["铅快粗槽", "铅精一槽", "铅精二槽", "铅精三槽"]
-
-        for tank in tanks:
-            tank_layout = QHBoxLayout()
-            tank_layout.addWidget(QLabel(f"{tank}:"))
-
-            spinbox = QDoubleSpinBox()
-            spinbox.setRange(0.5, 2.5)
-            spinbox.setValue(1.2 + random.uniform(-0.1, 0.1))
-            spinbox.setSingleStep(0.05)
-            spinbox.valueChanged.connect(
-                lambda value, t=tank: self._on_tank_level_changed(t, value)
+        
+    def create_control_mode_section(self):
+        """创建控制模式选择区域"""
+        widget = QGroupBox("控制模式")
+        widget.setMaximumHeight(100)
+        layout = QVBoxLayout(widget)
+        
+        # 模式选择按钮
+        button_layout = QHBoxLayout()
+        button_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        
+        self.auto_mode_btn = QPushButton("自动模式")
+        self.manual_mode_btn = QPushButton("手动模式")
+        
+        # 设置按钮样式
+        for btn in [self.auto_mode_btn, self.manual_mode_btn]:
+            btn.setCheckable(True)
+            btn.setFixedSize(120, 40)
+            btn.setFont(QFont("Microsoft YaHei", 11))
+            
+        # 默认选择自动模式
+        self.auto_mode_btn.setChecked(True)
+        self.update_mode_buttons_style()
+        
+        button_layout.addWidget(self.auto_mode_btn)
+        button_layout.addWidget(self.manual_mode_btn)
+        
+        # 状态指示
+        mode_status_layout = QHBoxLayout()
+        mode_status_layout.addWidget(QLabel("当前模式:"))
+        self.mode_status_label = QLabel("自动控制")
+        self.mode_status_label.setFont(QFont("Microsoft YaHei", 11, QFont.Weight.Bold))
+        self.mode_status_label.setStyleSheet("color: #27ae60;")
+        mode_status_layout.addWidget(self.mode_status_label)
+        mode_status_layout.addStretch()
+        
+        layout.addLayout(button_layout)
+        layout.addLayout(mode_status_layout)
+        
+        return widget
+        
+    def create_level_control_section(self):
+        """创建液位控制区域"""
+        widget = QGroupBox("液位智能控制")
+        layout = QGridLayout(widget)
+        
+        # 标题行
+        layout.addWidget(QLabel("浮选槽"), 0, 0)
+        layout.addWidget(QLabel("设定值(m)"), 0, 1)
+        layout.addWidget(QLabel("当前值(m)"), 0, 2)
+        layout.addWidget(QLabel("PID参数"), 0, 3)
+        
+        # 四个浮选槽的控制参数
+        self.level_controls = []
+        for i in range(4):
+            row = i + 1
+            
+            # 槽名称
+            tank_names = ["铅快粗槽", "铅精一槽", "铅精二槽", "铅精三槽"]
+            tank_label = QLabel(tank_names[i])
+            tank_label.setFont(QFont("Microsoft YaHei", 10, QFont.Weight.Bold))
+            layout.addWidget(tank_label, row, 0)
+            
+            # 设定值
+            level_spin = QDoubleSpinBox()
+            level_spin.setRange(0.5, 2.5)
+            level_spin.setValue(1.2 + i * 0.1)
+            level_spin.setDecimals(2)
+            level_spin.setSingleStep(0.1)
+            level_spin.valueChanged.connect(
+                lambda value, idx=i: self.on_level_setpoint_changed(idx, value)
             )
-            tank_layout.addWidget(spinbox)
-            tank_layout.addWidget(QLabel("m"))
-            tank_layout.addStretch()
-
-            tanks_layout.addLayout(tank_layout)
-
-        layout.addLayout(tanks_layout)
-
-        return group
-
-    def _create_dosing_control(self):
-        """创建加药量控制组件"""
-        group = QGroupBox("加药量控制")
-        layout = QVBoxLayout(group)
-
-        # 药剂类型选择
-        reagent_layout = QHBoxLayout()
-        reagent_layout.addWidget(QLabel("药剂类型:"))
-
-        self.reagent_combo = QComboBox()
-        self.reagent_combo.addItems(["捕收剂", "起泡剂", "抑制剂", "调整剂"])
-        self.reagent_combo.currentTextChanged.connect(self._on_reagent_changed)
-        reagent_layout.addWidget(self.reagent_combo)
-        reagent_layout.addStretch()
-        layout.addLayout(reagent_layout)
-
-        # 总体加药量控制
-        overall_dosing_layout = QHBoxLayout()
-        overall_dosing_layout.addWidget(QLabel("总体加药量:"))
-
-        self.dosing_slider = QSlider(Qt.Orientation.Horizontal)
-        self.dosing_slider.setRange(0, 200)
-        self.dosing_slider.setValue(100)
-        self.dosing_slider.valueChanged.connect(self._on_dosing_changed)
-        overall_dosing_layout.addWidget(self.dosing_slider)
-
-        self.dosing_value = QLabel("100 ml/min")
-        overall_dosing_layout.addWidget(self.dosing_value)
-        layout.addLayout(overall_dosing_layout)
-
-        # 单个槽位加药控制
-        dosing_tanks_layout = QVBoxLayout()
-        tanks = ["铅快粗槽", "铅精一槽", "铅精二槽", "铅精三槽"]
-
-        for tank in tanks:
-            tank_dosing_layout = QHBoxLayout()
-            tank_dosing_layout.addWidget(QLabel(f"{tank}:"))
-
-            spinbox = QDoubleSpinBox()
-            spinbox.setRange(0, 200)
-            spinbox.setValue(50 + random.uniform(-10, 10))
-            spinbox.setSingleStep(5)
-            spinbox.valueChanged.connect(
-                lambda value, t=tank: self._on_tank_dosing_changed(t, value)
+            layout.addWidget(level_spin, row, 1)
+            
+            # 当前值显示
+            current_level_label = QLabel("--")
+            current_level_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            current_level_label.setStyleSheet("font-weight: bold; color: #3498db;")
+            layout.addWidget(current_level_label, row, 2)
+            
+            # PID参数显示
+            pid_label = QLabel("Kp=1.0, Ki=0.1, Kd=0.01")
+            pid_label.setStyleSheet("color: #7f8c8d; font-size: 10px;")
+            layout.addWidget(pid_label, row, 3)
+            
+            self.level_controls.append({
+                'setpoint': level_spin,
+                'current': current_level_label,
+                'pid': pid_label
+            })
+            
+        return widget
+        
+    def create_dosing_control_section(self):
+        """创建加药量控制区域"""
+        widget = QGroupBox("加药量自动控制")
+        layout = QGridLayout(widget)
+        
+        # 标题行
+        layout.addWidget(QLabel("浮选槽"), 0, 0)
+        layout.addWidget(QLabel("药剂类型"), 0, 1)
+        layout.addWidget(QLabel("设定值(ml/min)"), 0, 2)
+        layout.addWidget(QLabel("当前值(ml/min)"), 0, 3)
+        layout.addWidget(QLabel("状态"), 0, 4)
+        
+        # 四个浮选槽的加药控制
+        self.dosing_controls = []
+        for i in range(4):
+            row = i + 1
+            
+            # 槽名称
+            tank_names = ["铅快粗槽", "铅精一槽", "铅精二槽", "铅精三槽"]
+            tank_label = QLabel(tank_names[i])
+            tank_label.setFont(QFont("Microsoft YaHei", 10, QFont.Weight.Bold))
+            layout.addWidget(tank_label, row, 0)
+            
+            # 药剂类型选择
+            reagent_combo = QComboBox()
+            reagent_combo.addItems(["捕收剂", "起泡剂", "抑制剂"])
+            reagent_combo.currentTextChanged.connect(
+                lambda text, idx=i: self.on_reagent_type_changed(idx, text)
             )
-            tank_dosing_layout.addWidget(spinbox)
-            tank_dosing_layout.addWidget(QLabel("ml/min"))
-            tank_dosing_layout.addStretch()
-
-            dosing_tanks_layout.addLayout(tank_dosing_layout)
-
-        layout.addLayout(dosing_tanks_layout)
-
-        return group
-
-    def _create_pid_control(self):
-        """创建PID参数控制"""
-        group = QGroupBox("PID参数设置")
-        layout = QHBoxLayout(group)
-
-        # P参数
-        p_layout = QVBoxLayout()
-        p_layout.addWidget(QLabel("比例系数 Kp"))
-        self.kp_spinbox = QDoubleSpinBox()
-        self.kp_spinbox.setRange(0.1, 10.0)
-        self.kp_spinbox.setValue(1.2)
-        self.kp_spinbox.setSingleStep(0.1)
-        p_layout.addWidget(self.kp_spinbox)
-
-        # I参数
-        i_layout = QVBoxLayout()
-        i_layout.addWidget(QLabel("积分时间 Ti"))
-        self.ti_spinbox = QDoubleSpinBox()
-        self.ti_spinbox.setRange(0.01, 1.0)
-        self.ti_spinbox.setValue(0.1)
-        self.ti_spinbox.setSingleStep(0.01)
-        i_layout.addWidget(self.ti_spinbox)
-
-        # D参数
-        d_layout = QVBoxLayout()
-        d_layout.addWidget(QLabel("微分时间 Td"))
-        self.td_spinbox = QDoubleSpinBox()
-        self.td_spinbox.setRange(0.001, 0.1)
-        self.td_spinbox.setValue(0.01)
-        self.td_spinbox.setSingleStep(0.001)
-        d_layout.addWidget(self.td_spinbox)
-
-        layout.addLayout(p_layout)
-        layout.addLayout(i_layout)
-        layout.addLayout(d_layout)
-
-        # 应用按钮
-        apply_btn = QPushButton("应用PID参数")
-        apply_btn.clicked.connect(self._apply_pid_parameters)
-        layout.addWidget(apply_btn)
-
-        return group
-
-    def _create_advanced_control(self):
-        """创建高级控制组件"""
-        group = QGroupBox("高级控制")
-        layout = QHBoxLayout(group)
-
-        # 左侧：优化算法选择
-        left_layout = QVBoxLayout()
-        left_layout.addWidget(QLabel("优化算法:"))
-
-        self.algorithm_combo = QComboBox()
-        self.algorithm_combo.addItems([
-            "传统PID控制",
-            "模糊PID控制",
-            "神经网络优化",
-            "模型预测控制"
-        ])
-        left_layout.addWidget(self.algorithm_combo)
-
-        # 优化目标
-        left_layout.addWidget(QLabel("优化目标:"))
-        self.optimization_checkboxes = []
-        targets = ["最大化回收率", "稳定泡沫层", "节能优化", "质量优先"]
-
-        for target in targets:
-            checkbox = QCheckBox(target)
-            self.optimization_checkboxes.append(checkbox)
-            left_layout.addWidget(checkbox)
-
-        layout.addLayout(left_layout)
-
-        # 右侧：控制日志
-        right_layout = QVBoxLayout()
-        right_layout.addWidget(QLabel("控制日志:"))
-
-        self.control_log = QTextEdit()
-        self.control_log.setMaximumHeight(150)
-        self.control_log.setReadOnly(True)
-        right_layout.addWidget(self.control_log)
-
-        # 紧急停止按钮
-        emergency_btn = QPushButton("紧急停止")
-        emergency_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #e74c3c;
-                color: white;
-                font-weight: bold;
-                border: none;
-                border-radius: 5px;
-                padding: 10px;
-            }
-        """)
-        emergency_btn.clicked.connect(self._on_emergency_stop)
-        right_layout.addWidget(emergency_btn)
-
-        layout.addLayout(right_layout)
-
-        return group
-
-    def _on_auto_mode(self):
-        """自动模式选择"""
-        self.control_mode = "自动"
-        self.manual_btn.setChecked(False)
-        self.mode_status.setText("自动模式 - 系统自动调节参数")
-        self.mode_status.setStyleSheet("color: #27ae60; font-weight: bold;")
-        self.control_mode_changed.emit("自动")
-        self._log_control_action("切换到自动模式")
-
-    def _on_manual_mode(self):
-        """手动模式选择"""
-        self.control_mode = "手动"
-        self.auto_btn.setChecked(False)
-        self.mode_status.setText("手动模式 - 手动调节参数")
-        self.mode_status.setStyleSheet("color: #e67e22; font-weight: bold;")
-        self.control_mode_changed.emit("手动")
-        self._log_control_action("切换到手动模式")
-
-    def _on_level_changed(self, value):
-        """液位设定值改变"""
-        level = value / 100.0  # 转换为米
-        self.level_value.setText(f"{level:.2f} m")
-        self.parameter_changed.emit("总体液位", level)
-        self._log_control_action(f"设定总体液位: {level:.2f}m")
-
-    def _on_dosing_changed(self, value):
-        """加药量设定值改变"""
-        self.dosing_value.setText(f"{value} ml/min")
-        self.parameter_changed.emit("总体加药量", value)
-        self._log_control_action(f"设定总体加药量: {value}ml/min")
-
-    def _on_reagent_changed(self, reagent):
-        """药剂类型改变"""
-        self.parameter_changed.emit("药剂类型", reagent)
-        self._log_control_action(f"切换药剂类型: {reagent}")
-
-    def _on_tank_level_changed(self, tank_name, level):
-        """单个槽位液位改变"""
-        self.parameter_changed.emit(f"{tank_name}_液位", level)
-        self._log_control_action(f"设定{tank_name}液位: {level:.2f}m")
-
-    def _on_tank_dosing_changed(self, tank_name, dosing):
-        """单个槽位加药量改变"""
-        self.parameter_changed.emit(f"{tank_name}_加药量", dosing)
-        self._log_control_action(f"设定{tank_name}加药量: {dosing}ml/min")
-
-    def _apply_pid_parameters(self):
-        """应用PID参数"""
-        kp = self.kp_spinbox.value()
-        ti = self.ti_spinbox.value()
-        td = self.td_spinbox.value()
-
-        self.parameter_changed.emit("PID参数", {"Kp": kp, "Ti": ti, "Td": td})
-        self._log_control_action(f"应用PID参数: Kp={kp:.2f}, Ti={ti:.2f}, Td={td:.3f}")
-
-    def _on_emergency_stop(self):
-        """紧急停止"""
-        self.emergency_stop_signal.emit()
-        self._log_control_action("紧急停止触发", is_error=True)
-
-    def _log_control_action(self, message, is_error=False):
-        """记录控制动作日志"""
-        from datetime import datetime
-        timestamp = datetime.now().strftime("%H:%M:%S")
-
-        if is_error:
-            log_entry = f"[{timestamp}] ❌ {message}"
-            self.control_log.setTextColor(QColor("#e74c3c"))
+            layout.addWidget(reagent_combo, row, 1)
+            
+            # 加药量设定
+            dosing_spin = QDoubleSpinBox()
+            dosing_spin.setRange(0, 200)
+            dosing_spin.setValue(50 + i * 10)
+            dosing_spin.setSingleStep(5)
+            dosing_spin.valueChanged.connect(
+                lambda value, idx=i: self.on_dosing_setpoint_changed(idx, value)
+            )
+            layout.addWidget(dosing_spin, row, 2)
+            
+            # 当前值显示
+            current_dosing_label = QLabel("--")
+            current_dosing_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            current_dosing_label.setStyleSheet("font-weight: bold; color: #e74c3c;")
+            layout.addWidget(current_dosing_label, row, 3)
+            
+            # 状态指示
+            status_indicator = QLabel("●")
+            status_indicator.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            status_indicator.setStyleSheet("color: green; font-weight: bold; font-size: 16px;")
+            layout.addWidget(status_indicator, row, 4)
+            
+            self.dosing_controls.append({
+                'reagent': reagent_combo,
+                'setpoint': dosing_spin,
+                'current': current_dosing_label,
+                'status': status_indicator
+            })
+            
+        return widget
+        
+    def create_status_section(self):
+        """创建状态指示区域"""
+        widget = QGroupBox("控制状态监控")
+        layout = QHBoxLayout(widget)
+        
+        # 总体控制效果
+        effect_layout = QVBoxLayout()
+        effect_layout.addWidget(QLabel("控制效果"))
+        self.control_effect_bar = QProgressBar()
+        self.control_effect_bar.setRange(0, 100)
+        self.control_effect_bar.setValue(85)
+        self.control_effect_bar.setFormat("优化程度: %p%")
+        effect_layout.addWidget(self.control_effect_bar)
+        
+        # 系统稳定性
+        stability_layout = QVBoxLayout()
+        stability_layout.addWidget(QLabel("系统稳定性"))
+        self.stability_bar = QProgressBar()
+        self.stability_bar.setRange(0, 100)
+        self.stability_bar.setValue(92)
+        self.stability_bar.setFormat("稳定度: %p%")
+        stability_layout.addWidget(self.stability_bar)
+        
+        # 能耗指标
+        energy_layout = QVBoxLayout()
+        energy_layout.addWidget(QLabel("能耗指标"))
+        self.energy_bar = QProgressBar()
+        self.energy_bar.setRange(0, 100)
+        self.energy_bar.setValue(78)
+        self.energy_bar.setFormat("效率: %p%")
+        energy_layout.addWidget(self.energy_bar)
+        
+        layout.addLayout(effect_layout)
+        layout.addLayout(stability_layout)
+        layout.addLayout(energy_layout)
+        
+        return widget
+        
+    def setup_connections(self):
+        """设置信号连接"""
+        # 控制模式按钮连接
+        self.auto_mode_btn.clicked.connect(self.on_auto_mode_selected)
+        self.manual_mode_btn.clicked.connect(self.on_manual_mode_selected)
+        
+    def on_auto_mode_selected(self):
+        """选择自动模式"""
+        if self.auto_mode_btn.isChecked():
+            self.manual_mode_btn.setChecked(False)
+            self.control_mode = "auto"
+            self.mode_status_label.setText("自动控制")
+            self.mode_status_label.setStyleSheet("color: #27ae60;")
+            self.control_mode_changed.emit("auto")
+            
+    def on_manual_mode_selected(self):
+        """选择手动模式"""
+        if self.manual_mode_btn.isChecked():
+            self.auto_mode_btn.setChecked(False)
+            self.control_mode = "manual"
+            self.mode_status_label.setText("手动控制")
+            self.mode_status_label.setStyleSheet("color: #e67e22;")
+            self.control_mode_changed.emit("manual")
+            
+    def update_mode_buttons_style(self):
+        """更新模式按钮样式"""
+        if self.control_mode == "auto":
+            self.auto_mode_btn.setStyleSheet("""
+                QPushButton {
+                    background-color: #27ae60;
+                    color: white;
+                    border: none;
+                    border-radius: 5px;
+                    font-weight: bold;
+                }
+                QPushButton:checked {
+                    background-color: #2ecc71;
+                }
+            """)
+            self.manual_mode_btn.setStyleSheet("""
+                QPushButton {
+                    background-color: #bdc3c7;
+                    color: #7f8c8d;
+                    border: none;
+                    border-radius: 5px;
+                }
+            """)
         else:
-            log_entry = f"[{timestamp}] ✅ {message}"
-            self.control_log.setTextColor(QColor("#27ae60"))
-
-        self.control_log.append(log_entry)
-        # 保持日志长度
-        if self.control_log.document().lineCount() > 100:
-            cursor = self.control_log.textCursor()
-            cursor.movePosition(cursor.MoveOperation.Start)
-            cursor.select(cursor.SelectionType.LineUnderCursor)
-            cursor.removeSelectedText()
-            cursor.deleteChar()  # 删除换行符
+            self.manual_mode_btn.setStyleSheet("""
+                QPushButton {
+                    background-color: #e67e22;
+                    color: white;
+                    border: none;
+                    border-radius: 5px;
+                    font-weight: bold;
+                }
+                QPushButton:checked {
+                    background-color: #f39c12;
+                }
+            """)
+            self.auto_mode_btn.setStyleSheet("""
+                QPushButton {
+                    background-color: #bdc3c7;
+                    color: #7f8c8d;
+                    border: none;
+                    border-radius: 5px;
+                }
+            """)
+            
+    def on_level_setpoint_changed(self, tank_id, value):
+        """液位设定值改变"""
+        self.level_setpoint_changed.emit(tank_id, value)
+        
+    def on_dosing_setpoint_changed(self, tank_id, value):
+        """加药量设定值改变"""
+        self.dosing_setpoint_changed.emit(tank_id, value)
+        
+    def on_reagent_type_changed(self, tank_id, reagent_type):
+        """药剂类型改变"""
+        self.reagent_type_changed.emit(tank_id, reagent_type)
+        
+    def update_control_data(self, control_data):
+        """更新控制数据"""
+        try:
+            # 更新液位当前值
+            for i, control in enumerate(self.level_controls):
+                if f'level_current_{i}' in control_data:
+                    current_value = control_data[f'level_current_{i}']
+                    control['current'].setText(f"{current_value:.2f}")
+                    
+            # 更新加药量当前值
+            for i, control in enumerate(self.dosing_controls):
+                if f'dosing_current_{i}' in control_data:
+                    current_value = control_data[f'dosing_current_{i}']
+                    control['current'].setText(f"{current_value:.1f}")
+                    
+                # 更新状态指示
+                if f'dosing_status_{i}' in control_data:
+                    status = control_data[f'dosing_status_{i}']
+                    color = "green" if status == "normal" else "red"
+                    control['status'].setStyleSheet(f"color: {color}; font-weight: bold; font-size: 16px;")
+                    
+            # 更新控制效果指标
+            if 'control_effect' in control_data:
+                self.control_effect_bar.setValue(int(control_data['control_effect']))
+                
+            if 'stability' in control_data:
+                self.stability_bar.setValue(int(control_data['stability']))
+                
+            if 'energy_efficiency' in control_data:
+                self.energy_bar.setValue(int(control_data['energy_efficiency']))
+                
+        except Exception as e:
+            print(f"更新控制数据时出错: {e}")
