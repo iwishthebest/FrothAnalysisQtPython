@@ -92,7 +92,8 @@ class VideoService:
             return None
 
         try:
-            if self.simulation_mode or camera_index not in self.rtsp_readers:
+            camera_enabled = self.camera_configs[camera_index].enabled
+            if not camera_enabled or camera_index not in self.rtsp_readers:
                 return self._capture_simulated_frame(camera_index)
             else:
                 return self.rtsp_readers[camera_index].get_frame(timeout=timeout)
@@ -118,10 +119,10 @@ class VideoService:
                     cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
 
         # 添加泡沫气泡
-        # for _ in range(config["bubble_count"]):
-        #     x, y = np.random.randint(0, width), np.random.randint(0, height // 2)
-        #     radius = np.random.randint(*config["bubble_radius_range"])
-        #     cv2.circle(frame, (x, y), radius, (255, 255, 255), -1)
+        for _ in range(50):
+            x, y = np.random.randint(0, width), np.random.randint(0, height // 2)
+            radius = np.random.randint(8,20)
+            cv2.circle(frame, (x, y), radius, (255, 255, 255), -1)
 
         return frame
 
@@ -139,8 +140,9 @@ class VideoService:
             return {"status": "invalid", "message": "无效的相机索引"}
 
         config = self.camera_configs[camera_index]
+        camera_enabled = self.camera_configs[camera_index].enabled
 
-        if self.simulation_mode:
+        if not camera_enabled:
             return {
                 "status": "simulation",
                 "name": config["name"],
