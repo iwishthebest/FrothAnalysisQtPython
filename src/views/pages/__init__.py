@@ -97,4 +97,5 @@ def initialize_pages():
 
 # 当包被导入时自动初始化
 if __name__ != "__main__":
-    initialize_pages()
+    pass
+    # initialize_pages()

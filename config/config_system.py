@@ -8,6 +8,8 @@ from dataclasses import dataclass, asdict
 from typing import List, Dict, Any, Optional, Tuple
 from enum import Enum
 
+from src.services.logging_service import get_logging_service
+
 
 class CameraPosition(Enum):
     """相机位置枚举"""
@@ -28,19 +30,19 @@ class TankType(Enum):
 @dataclass
 class CameraConfig:
     """相机配置"""
-    camera_index: int  
+    camera_index: int
     name: str
     rtsp_url: str
     position: CameraPosition
-    simulation_color: Tuple[int, int, int] = (100, 150, 200)  
+    simulation_color: Tuple[int, int, int] = (100, 150, 200)
     enabled: bool = True
     timeout: int = 10
     reconnect_interval: int = 5
     max_retries: int = 10
-    resolution: str = "1920x1080"  
-    frame_rate: int = 30  
-    exposure: float = 10.0  
-    gain: float = 5.0  
+    resolution: str = "1920x1080"
+    frame_rate: int = 30
+    exposure: float = 10.0
+    gain: float = 5.0
 
     def validate(self) -> bool:
         """验证配置有效性"""
@@ -222,7 +224,7 @@ class DataConfig:
     backup_frequency: str = "weekly"  # daily, weekly, monthly
     auto_cleanup: bool = True
     retention_days: int = 30
-    cache_size: int = 500  
+    cache_size: int = 500
 
     def validate(self) -> bool:
         """验证配置有效性"""
@@ -252,8 +254,8 @@ class UIConfig:
     language: str = "zh-CN"
     max_data_points: int = 1000
     window_size: Tuple[int, int] = (1400, 900)
-    hardware_acceleration: bool = True  
-    image_quality: str = "balanced"  
+    hardware_acceleration: bool = True
+    image_quality: str = "balanced"
 
     def validate(self) -> bool:
         """验证配置有效性"""
@@ -379,13 +381,14 @@ class SystemConfig:
 
 
 class ConfigManager:
-    """配置管理器 - 去安全配置版"""
+    """配置管理器"""
 
-    def __init__(self, config_file: str = "config.json"):
+    def __init__(self, config_file: str = "config/config.json"):
         # 确保配置文件路径有效
         if not config_file:
-            config_file = "config.json"
+            config_file = "config/config.json"
         self.config_file = config_file
+        self.logger = get_logging_service()
         self.system_config = self._load_config()
 
     def _load_config(self) -> SystemConfig:
@@ -396,9 +399,10 @@ class ConfigManager:
         try:
             with open(self.config_file, 'r', encoding='utf-8') as f:
                 config_data = json.load(f)
+                self.logger.info(f"加载配置成功，使用{self.config_file}配置")
                 return SystemConfig.from_dict(config_data)
         except Exception as e:
-            print(f"加载配置失败: {e}，使用默认配置")
+            self.logger.error(f"加载配置失败: {e}，使用默认配置")
             return self._create_default_config()
 
     def _create_default_config(self) -> SystemConfig:
@@ -439,9 +443,9 @@ class ConfigManager:
             with open(self.config_file, 'w', encoding='utf-8') as f:
                 f.write(json_data)
 
-            print("配置保存成功")
+            self.logger.info("配置保存成功","SYSTEM")
         except Exception as e:
-            print(f"保存配置失败: {e}")
+            print(f"保存配置失败: {e}","SYSTEM")
             raise
 
     def get_camera_configs(self) -> List[CameraConfig]:
@@ -525,9 +529,9 @@ class ConfigManager:
             with open(export_path, 'w', encoding='utf-8') as f:
                 f.write(json_data)
 
-            print(f"配置已导出到: {export_path}")
+            self.logger.info(f"配置已导出到: {export_path}","SYSTEM")
         except Exception as e:
-            print(f"导出配置失败: {e}")
+            self.logger.error(f"导出配置失败: {e}","SYSTEM")
             raise
 
     def import_config(self, import_path: str):
@@ -540,9 +544,9 @@ class ConfigManager:
             self.system_config = new_config
             self.save_config()
 
-            print(f"配置已从 {import_path} 导入")
+            self.logger.info(f"配置已从 {import_path} 导入","SYSTEM")
         except Exception as e:
-            print(f"导入配置失败: {e}")
+            self.logger.error(f"导入配置失败: {e}","SYSTEM")
             raise
 
 

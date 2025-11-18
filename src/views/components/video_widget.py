@@ -39,9 +39,9 @@ class VideoDisplayWidget(QWidget):
         title_label.setStyleSheet("color: #2c3e50;")  # 加深标题颜色
         
         # 标题两侧添加弹簧，使标题居中且在窗口缩放时保持居中
-        title_layout.addItem(QSpacerItem(40, 20, QSizePolicy.Expanding, QSizePolicy.Minimum))
+        title_layout.addItem(QSpacerItem(40, 20, QSizePolicy.Policy.Expanding, QSizePolicy.Minimum))
         title_layout.addWidget(title_label)
-        title_layout.addItem(QSpacerItem(40, 20, QSizePolicy.Expanding, QSizePolicy.Minimum))
+        title_layout.addItem(QSpacerItem(40, 20, QSizePolicy.Policy.Expanding, QSizePolicy.Minimum))
         
         main_layout.addWidget(title_container)
 
@@ -77,28 +77,9 @@ class VideoDisplayWidget(QWidget):
     def create_camera_widget(self, config):
         """创建单个相机显示组件"""
         group = QGroupBox(config["name"])
-    #     group.setStyleSheet(f"""
-    #     QGroupBox {{
-    #         border: 2px solid {config['color']};
-    #         border-radius: 8px;
-    #         padding: 15px 10px 10px 10px;
-    #         background-color: #ffffff;
-    #     }}
-    #     QGroupBox::title {{
-    #         subcontrol-origin: margin;
-    #         subcontrol-position: top left;
-    #         left: 15px;
-    #         top: -8px;  /* 适当调整上移距离，避免超出边框 */
-    #         padding: 0 8px;
-    #         color: {config['color']};
-    #         font-weight: bold;
-    #         font-size: 14px;
-    #         background-color: #ffffff;  /* 确保标题背景与容器一致 */
-    #         border: 1px solid transparent;
-    #     }}
-    # """)
+
         group.setMinimumSize(320, 240)  # 设置最小尺寸
-        group.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)  # 允许扩展
+        group.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)  # 允许扩展
 
         layout = QVBoxLayout(group)
         layout.setContentsMargins(10, 10, 10, 10)
@@ -115,7 +96,7 @@ class VideoDisplayWidget(QWidget):
                 border-radius: 4px;
             }
         """)
-        video_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)  # 视频区域可扩展
+        video_label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)  # 视频区域可扩展
 
         # 状态标签 - 增加容器使其更美观
         status_container = QWidget()

@@ -51,4 +51,5 @@ def initialize_views():
 
 # 当包被导入时自动初始化
 if __name__ != "__main__":
-    initialize_views()
+    pass
+    # initialize_views()

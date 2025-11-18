@@ -1,7 +1,8 @@
 import cv2
 import numpy as np
 from typing import Optional, List, Dict, Any
-from config.camera_configs import CameraConfig
+# from config.camera_configs import CameraConfig
+from config.config_system import config_manager
 from src.services.logging_service import get_logging_service
 from src.common.constants import LogCategory
 from src.utils.video_utils import RTSPStreamReader
@@ -13,7 +14,8 @@ class VideoService:
     def __init__(self):
         """初始化视频服务"""
         self.logger = get_logging_service()
-        self.camera_configs = CameraConfig.create_default_configs()
+        # self.camera_configs = CameraConfig.create_default_configs()
+        self.camera_configs = config_manager.get_camera_configs()
         self.rtsp_readers: Dict[int, RTSPStreamReader] = {}
         self.simulation_mode = False
         self._initialize_cameras()

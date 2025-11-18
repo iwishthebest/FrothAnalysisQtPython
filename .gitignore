@@ -27,3 +27,4 @@ personal_config.ini
 temp/
 test/
 /secret.key
+/config/config.json
