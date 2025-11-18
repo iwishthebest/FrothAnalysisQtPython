@@ -67,7 +67,7 @@ class CameraConfig:
                 name="铅快粗泡沫相机",
                 rtsp_url="rtsp://admin:fkqxk010@192.168.1.101:554/Streaming/Channels/101",
                 position=CameraPosition.LEAD_ROUGH,
-                enabled=True,
+                enabled=False,
                 simulation_color=(100, 150, 200)  # 蓝色调
             ),
             cls(
