@@ -98,7 +98,7 @@ class FoamMonitoringSystem(QMainWindow):
         # Window
         self.setWindowTitle("铅浮选过程工况智能监测与控制系统")
         self.setGeometry(0, 0, 1920, 1000)
-        self.setWindowIcon(QIcon("resources/icons/icon.png"))
+        self.setWindowIcon(QIcon("../resources/icons/icon.png"))
 
         # 添加堆叠窗口管理左侧界面
         self.left_stack = QStackedWidget()
@@ -574,7 +574,7 @@ class FoamMonitoringSystem(QMainWindow):
     def load_stylesheet(self):
         """加载样式表"""
         try:
-            with open("resources/styles/diy.qss", "r", encoding="utf-8") as f:
+            with open("../resources/styles/diy.qss", "r", encoding="utf-8") as f:
                 stylesheet = f.read()
                 self.setStyleSheet(stylesheet)
         except FileNotFoundError:

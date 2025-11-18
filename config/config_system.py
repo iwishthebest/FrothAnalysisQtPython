@@ -10,7 +10,7 @@ from enum import Enum
 
 
 class CameraPosition(Enum):
-    """相机位置枚举 - 整合文档2和3"""
+    """相机位置枚举"""
     LEAD_ROUGH = "铅快粗泡沫"
     LEAD_CLEAN_1 = "铅精一泡沫"
     LEAD_CLEAN_2 = "铅精二泡沫"
@@ -18,7 +18,7 @@ class CameraPosition(Enum):
 
 
 class TankType(Enum):
-    """浮选槽类型枚举 - 整合文档3和5"""
+    """浮选槽类型枚举"""
     ROUGH = "粗选"
     CLEAN_1 = "精选一"
     CLEAN_2 = "精选二"
@@ -27,23 +27,23 @@ class TankType(Enum):
 
 @dataclass
 class CameraConfig:
-    """相机配置 - 整合文档2和3的特色功能"""
-    camera_index: int  # 从文档2整合
+    """相机配置"""
+    camera_index: int  
     name: str
     rtsp_url: str
     position: CameraPosition
-    simulation_color: Tuple[int, int, int] = (100, 150, 200)  # 从文档2整合
+    simulation_color: Tuple[int, int, int] = (100, 150, 200)  
     enabled: bool = True
     timeout: int = 10
     reconnect_interval: int = 5
     max_retries: int = 10
-    resolution: str = "1920x1080"  # 从文档4整合
-    frame_rate: int = 30  # 从文档4整合
-    exposure: float = 10.0  # 从文档4整合
-    gain: float = 5.0  # 从文档4整合
+    resolution: str = "1920x1080"  
+    frame_rate: int = 30  
+    exposure: float = 10.0  
+    gain: float = 5.0  
 
     def validate(self) -> bool:
-        """验证配置有效性 - 从文档2整合"""
+        """验证配置有效性"""
         if not self.name.strip():
             return False
         if not self.rtsp_url.startswith('rtsp://'):
@@ -86,7 +86,7 @@ class CameraConfig:
 
     @classmethod
     def create_default_configs(cls) -> List['CameraConfig']:
-        """创建默认相机配置列表 - 从文档2整合"""
+        """创建默认相机配置列表"""
         return [
             cls(
                 camera_index=0,
@@ -125,7 +125,7 @@ class CameraConfig:
 
 @dataclass
 class TankConfig:
-    """浮选槽配置 - 整合文档3和5的特色功能"""
+    """浮选槽配置"""
     name: str
     type: TankType
     color: str
@@ -135,7 +135,7 @@ class TankConfig:
     default_dosing: float = 50
 
     def validate(self) -> bool:
-        """验证配置有效性 - 从文档5整合"""
+        """验证配置有效性"""
         if not self.name.strip():
             return False
         if not self.color.startswith('#'):
@@ -177,7 +177,7 @@ class TankConfig:
 
     @classmethod
     def create_default_configs(cls) -> List['TankConfig']:
-        """创建默认浮选槽配置列表 - 从文档5整合"""
+        """创建默认浮选槽配置列表"""
         return [
             cls(
                 name="铅快粗槽",
@@ -212,7 +212,7 @@ class TankConfig:
 
 @dataclass
 class DataConfig:
-    """数据存储配置 - 从文档4整合"""
+    """数据存储配置"""
     save_path: str = "./data"
     auto_save_interval: int = 10  # 分钟
     save_format: str = "CSV"
@@ -222,7 +222,7 @@ class DataConfig:
     backup_frequency: str = "weekly"  # daily, weekly, monthly
     auto_cleanup: bool = True
     retention_days: int = 30
-    cache_size: int = 500  # 从文档4整合
+    cache_size: int = 500  
 
     def validate(self) -> bool:
         """验证配置有效性"""
@@ -246,17 +246,17 @@ class DataConfig:
 
 @dataclass
 class UIConfig:
-    """界面配置 - 整合文档3和6的特色功能"""
+    """界面配置"""
     refresh_rate: int = 100  # ms
     theme: str = "light"
     language: str = "zh-CN"
     max_data_points: int = 1000
     window_size: Tuple[int, int] = (1400, 900)
-    hardware_acceleration: bool = True  # 从文档4整合
-    image_quality: str = "balanced"  # 从文档4整合
+    hardware_acceleration: bool = True  
+    image_quality: str = "balanced"  
 
     def validate(self) -> bool:
-        """验证配置有效性 - 从文档6整合"""
+        """验证配置有效性"""
         if self.refresh_rate <= 0:
             return False
         if self.max_data_points <= 0:
@@ -282,7 +282,7 @@ class UIConfig:
         return cls(**data)
 
     def get_theme_colors(self) -> Dict[str, str]:
-        """获取主题颜色配置 - 从文档6整合"""
+        """获取主题颜色配置c6整合"""
         if self.theme == "dark":
             return {
                 'background': '#2c3e50',

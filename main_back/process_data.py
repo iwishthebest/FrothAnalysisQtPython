@@ -25,7 +25,7 @@ RETRY_DELAY = 2
 # Constants for OPC data
 OPC_URL = "http://10.12.18.2:8081/open/realdata/snapshot/batchGet"
 TAG_LIST = ["KYFX.kyfx_gqxk_grade_Pb", "KYFX.kyfx_gqxk_grade_Zn"]
-TAG_LIST_FILE = "resources/tags/tagList.csv"
+TAG_LIST_FILE = "../resources/tags/tagList.csv"
 
 
 def connect_camera(rtsp_url):
