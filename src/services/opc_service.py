@@ -172,5 +172,6 @@ def get_opc_service() -> OPCService:
         _opc_service_instance = OPCService()
     return _opc_service_instance
 
+
 OPCService = get_opc_service()
 OPCService.test_connection()

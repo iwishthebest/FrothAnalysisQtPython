@@ -1,10 +1,11 @@
 """
-整合版配置管理系统 - 去安全配置版
+整合版配置管理系统 - 去安全配置版（增强版）
+添加相机UI布局配置
 """
 
 import os
 import json
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass, asdict, field
 from typing import List, Dict, Any, Optional, Tuple
 from enum import Enum
 
@@ -28,6 +29,37 @@ class TankType(Enum):
 
 
 @dataclass
+class CameraLayoutConfig:
+    """相机UI布局配置"""
+    row: int
+    col: int
+    ui_color: str
+    display_name: str = ""
+    visible: bool = True
+    width_ratio: float = 1.0
+    height_ratio: float = 1.0
+
+    def validate(self) -> bool:
+        """验证布局配置有效性"""
+        if self.row < 0 or self.col < 0:
+            return False
+        if not self.ui_color.startswith('#'):
+            return False
+        if self.width_ratio <= 0 or self.height_ratio <= 0:
+            return False
+        return True
+
+    def to_dict(self) -> Dict[str, Any]:
+        """转换为字典"""
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> 'CameraLayoutConfig':
+        """从字典创建实例"""
+        return cls(**data)
+
+
+@dataclass
 class CameraConfig:
     """相机配置"""
     camera_index: int
@@ -43,6 +75,8 @@ class CameraConfig:
     frame_rate: int = 30
     exposure: float = 10.0
     gain: float = 5.0
+    # 新增UI布局配置
+    layout: CameraLayoutConfig = field(default_factory=lambda: CameraLayoutConfig(0, 0, "#3498db"))
 
     def validate(self) -> bool:
         """验证配置有效性"""
@@ -58,14 +92,16 @@ class CameraConfig:
             return False
         if self.gain < 0:
             return False
+        if not self.layout.validate():
+            return False
         return True
 
     def to_dict(self) -> Dict[str, Any]:
         """转换为字典"""
         data = asdict(self)
         data['position'] = self.position.value
-        # 转换tuple为list以便JSON序列化
         data['simulation_color'] = list(self.simulation_color)
+        data['layout'] = self.layout.to_dict()
         return data
 
     @classmethod
@@ -84,11 +120,26 @@ class CameraConfig:
         if isinstance(data.get('simulation_color'), list):
             data['simulation_color'] = tuple(data['simulation_color'])
 
+        # 处理layout配置
+        if isinstance(data.get('layout'), dict):
+            data['layout'] = CameraLayoutConfig.from_dict(data['layout'])
+        else:
+            # 默认布局配置
+            data['layout'] = CameraLayoutConfig(0, 0, "#3498db")
+
         return cls(**data)
 
     @classmethod
     def create_default_configs(cls) -> List['CameraConfig']:
         """创建默认相机配置列表"""
+        # 定义四个泡沫相机的UI布局配置
+        layout_configs = [
+            CameraLayoutConfig(row=0, col=0, ui_color="#3498db", display_name="铅快粗泡沫"),
+            CameraLayoutConfig(row=0, col=1, ui_color="#2ecc71", display_name="铅精一泡沫"),
+            CameraLayoutConfig(row=1, col=0, ui_color="#e74c3c", display_name="铅精二泡沫"),
+            CameraLayoutConfig(row=1, col=1, ui_color="#9b59b6", display_name="铅精三泡沫")
+        ]
+
         return [
             cls(
                 camera_index=0,
@@ -96,7 +147,8 @@ class CameraConfig:
                 rtsp_url="rtsp://admin:fkqxk010@192.168.1.101:554/Streaming/Channels/101",
                 position=CameraPosition.LEAD_ROUGH,
                 enabled=False,
-                simulation_color=(100, 150, 200)  # 蓝色调
+                simulation_color=(100, 150, 200),  # 蓝色调
+                layout=layout_configs[0]
             ),
             cls(
                 camera_index=1,
@@ -105,6 +157,7 @@ class CameraConfig:
                 position=CameraPosition.LEAD_CLEAN_1,
                 enabled=False,
                 simulation_color=(200, 200, 100),  # 黄色调
+                layout=layout_configs[1]
             ),
             cls(
                 camera_index=2,
@@ -113,6 +166,7 @@ class CameraConfig:
                 position=CameraPosition.LEAD_CLEAN_2,
                 enabled=False,
                 simulation_color=(150, 100, 100),  # 红色调
+                layout=layout_configs[2]
             ),
             cls(
                 camera_index=3,
@@ -121,8 +175,25 @@ class CameraConfig:
                 position=CameraPosition.LEAD_CLEAN_3,
                 enabled=False,
                 simulation_color=(100, 200, 150),  # 绿色调
+                layout=layout_configs[3]
             )
         ]
+
+    def get_ui_position(self) -> Tuple[int, int]:
+        """获取UI中的位置（行，列）"""
+        return (self.layout.row, self.layout.col)
+
+    def get_ui_color(self) -> str:
+        """获取UI显示颜色"""
+        return self.layout.ui_color
+
+    def get_display_name(self) -> str:
+        """获取显示名称"""
+        return self.layout.display_name if self.layout.display_name else self.name
+
+    def is_visible(self) -> bool:
+        """检查是否可见"""
+        return self.layout.visible and self.enabled
 
 
 @dataclass
@@ -152,7 +223,6 @@ class TankConfig:
         """转换为字典"""
         data = asdict(self)
         data['type'] = self.type.value
-        # 转换tuple为list以便JSON序列化
         data['level_range'] = list(self.level_range)
         data['dosing_range'] = list(self.dosing_range)
         return data
@@ -169,7 +239,6 @@ class TankConfig:
             else:
                 data['type'] = TankType.ROUGH
 
-        # 转换list为tuple
         if isinstance(data.get('level_range'), list):
             data['level_range'] = tuple(data['level_range'])
         if isinstance(data.get('dosing_range'), list):
@@ -213,15 +282,55 @@ class TankConfig:
 
 
 @dataclass
+class UICameraLayoutConfig:
+    """相机UI布局整体配置"""
+    grid_rows: int = 2
+    grid_cols: int = 2
+    spacing: int = 10
+    aspect_ratio: Tuple[int, int] = (4, 3)
+    show_borders: bool = True
+    border_color: str = "#bdc3c7"
+    border_width: int = 2
+
+    def validate(self) -> bool:
+        """验证布局配置有效性"""
+        if self.grid_rows <= 0 or self.grid_cols <= 0:
+            return False
+        if self.spacing < 0:
+            return False
+        if self.aspect_ratio[0] <= 0 or self.aspect_ratio[1] <= 0:
+            return False
+        if not self.border_color.startswith('#'):
+            return False
+        if self.border_width < 0:
+            return False
+        return True
+
+    def to_dict(self) -> Dict[str, Any]:
+        """转换为字典"""
+        data = asdict(self)
+        data['aspect_ratio'] = list(self.aspect_ratio)
+        return data
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> 'UICameraLayoutConfig':
+        """从字典创建实例"""
+        data = data.copy()
+        if isinstance(data.get('aspect_ratio'), list):
+            data['aspect_ratio'] = tuple(data['aspect_ratio'])
+        return cls(**data)
+
+
+@dataclass
 class DataConfig:
     """数据存储配置"""
     save_path: str = "./data"
-    auto_save_interval: int = 10  # 分钟
+    auto_save_interval: int = 10
     save_format: str = "CSV"
     save_images: bool = True
     auto_backup: bool = True
     backup_path: str = "./backup"
-    backup_frequency: str = "weekly"  # daily, weekly, monthly
+    backup_frequency: str = "weekly"
     auto_cleanup: bool = True
     retention_days: int = 30
     cache_size: int = 500
@@ -249,13 +358,15 @@ class DataConfig:
 @dataclass
 class UIConfig:
     """界面配置"""
-    refresh_rate: int = 100  # ms
+    refresh_rate: int = 100
     theme: str = "light"
     language: str = "zh-CN"
     max_data_points: int = 1000
     window_size: Tuple[int, int] = (1400, 900)
     hardware_acceleration: bool = True
     image_quality: str = "balanced"
+    # 新增相机布局配置
+    camera_layout: UICameraLayoutConfig = field(default_factory=UICameraLayoutConfig)
 
     def validate(self) -> bool:
         """验证配置有效性"""
@@ -265,26 +376,34 @@ class UIConfig:
             return False
         if self.window_size[0] <= 0 or self.window_size[1] <= 0:
             return False
+        if not self.camera_layout.validate():
+            return False
         return True
 
     def to_dict(self) -> Dict[str, Any]:
         """转换为字典"""
         data = asdict(self)
-        # 转换tuple为list以便JSON序列化
         data['window_size'] = list(self.window_size)
+        data['camera_layout'] = self.camera_layout.to_dict()
         return data
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'UIConfig':
         """从字典创建实例"""
         data = data.copy()
-        # 转换list为tuple
         if isinstance(data.get('window_size'), list):
             data['window_size'] = tuple(data['window_size'])
+
+        # 处理相机布局配置
+        if isinstance(data.get('camera_layout'), dict):
+            data['camera_layout'] = UICameraLayoutConfig.from_dict(data['camera_layout'])
+        else:
+            data['camera_layout'] = UICameraLayoutConfig()
+
         return cls(**data)
 
     def get_theme_colors(self) -> Dict[str, str]:
-        """获取主题颜色配置c6整合"""
+        """获取主题颜色配置"""
         if self.theme == "dark":
             return {
                 'background': '#2c3e50',
@@ -293,7 +412,7 @@ class UIConfig:
                 'secondary': '#2980b9',
                 'accent': '#e74c3c'
             }
-        else:  # light theme
+        else:
             return {
                 'background': '#ecf0f1',
                 'foreground': '#2c3e50',
@@ -306,7 +425,7 @@ class UIConfig:
 @dataclass
 class NetworkConfig:
     """网络配置"""
-    opc_server_url: str = "opc.tcp://localhost:4840"
+    opc_server_url: str = "http://10.12.18.2:8081/open/realdata/snapshot/batchGet"
     api_endpoint: str = "http://localhost:8000/api"
     timeout: int = 30
     retry_count: int = 3
@@ -336,7 +455,7 @@ class SystemConfig:
     tanks: List[TankConfig]
     ui: UIConfig
     network: NetworkConfig
-    data: DataConfig  # 新增数据配置
+    data: DataConfig
 
     def validate(self) -> bool:
         """验证所有配置的有效性"""
@@ -384,7 +503,6 @@ class ConfigManager:
     """配置管理器"""
 
     def __init__(self, config_file: str = "config/config.json"):
-        # 确保配置文件路径有效
         if not config_file:
             config_file = "config/config.json"
         self.config_file = config_file
@@ -399,14 +517,14 @@ class ConfigManager:
         try:
             with open(self.config_file, 'r', encoding='utf-8') as f:
                 config_data = json.load(f)
-                self.logger.info(f"加载配置成功，使用{self.config_file}配置")
+                self.logger.info(f"加载配置成功，使用{self.config_file}配置", "SYSTEM")
                 return SystemConfig.from_dict(config_data)
         except Exception as e:
-            self.logger.error(f"加载配置失败: {e}，使用默认配置")
+            self.logger.error(f"加载配置失败: {e}，使用默认配置", "SYSTEM")
             return self._create_default_config()
 
     def _create_default_config(self) -> SystemConfig:
-        """创建默认配置 - 使用各配置类的create_default_configs方法"""
+        """创建默认配置"""
         cameras = CameraConfig.create_default_configs()
         tanks = TankConfig.create_default_configs()
         ui = UIConfig()
@@ -429,7 +547,6 @@ class ConfigManager:
         if config is None:
             config = self.system_config
 
-        # 验证配置有效性
         if not config.validate():
             raise ValueError("配置验证失败，请检查配置参数")
 
@@ -437,15 +554,14 @@ class ConfigManager:
             config_dict = config.to_dict()
             json_data = json.dumps(config_dict, ensure_ascii=False, indent=2)
 
-            # 确保目录存在
-            # os.makedirs(os.path.dirname(self.config_file), exist_ok=True)
+            os.makedirs(os.path.dirname(self.config_file), exist_ok=True)
 
             with open(self.config_file, 'w', encoding='utf-8') as f:
                 f.write(json_data)
 
-            self.logger.info("配置保存成功","SYSTEM")
+            self.logger.info("配置保存成功", "SYSTEM")
         except Exception as e:
-            print(f"保存配置失败: {e}","SYSTEM")
+            self.logger.error(f"保存配置失败: {e}", "SYSTEM")
             raise
 
     def get_camera_configs(self) -> List[CameraConfig]:
@@ -519,6 +635,23 @@ class ConfigManager:
                 return tank
         return None
 
+    def get_camera_by_position(self, row: int, col: int) -> Optional[CameraConfig]:
+        """根据UI位置获取相机配置"""
+        for camera in self.system_config.cameras:
+            if camera.layout.row == row and camera.layout.col == col:
+                return camera
+        return None
+
+    def get_visible_cameras(self) -> List[CameraConfig]:
+        """获取可见的相机配置"""
+        return [cam for cam in self.system_config.cameras if cam.is_visible()]
+
+    def get_camera_grid_dimensions(self) -> Tuple[int, int]:
+        """获取相机网格布局的维度"""
+        rows = max([cam.layout.row for cam in self.system_config.cameras if cam.is_visible()], default=0) + 1
+        cols = max([cam.layout.col for cam in self.system_config.cameras if cam.is_visible()], default=0) + 1
+        return (rows, cols)
+
     def export_config(self, export_path: str):
         """导出配置到指定路径"""
         try:
@@ -529,9 +662,9 @@ class ConfigManager:
             with open(export_path, 'w', encoding='utf-8') as f:
                 f.write(json_data)
 
-            self.logger.info(f"配置已导出到: {export_path}","SYSTEM")
+            self.logger.info(f"配置已导出到: {export_path}", "SYSTEM")
         except Exception as e:
-            self.logger.error(f"导出配置失败: {e}","SYSTEM")
+            self.logger.error(f"导出配置失败: {e}", "SYSTEM")
             raise
 
     def import_config(self, import_path: str):
@@ -544,9 +677,9 @@ class ConfigManager:
             self.system_config = new_config
             self.save_config()
 
-            self.logger.info(f"配置已从 {import_path} 导入","SYSTEM")
+            self.logger.info(f"配置已从 {import_path} 导入", "SYSTEM")
         except Exception as e:
-            self.logger.error(f"导入配置失败: {e}","SYSTEM")
+            self.logger.error(f"导入配置失败: {e}", "SYSTEM")
             raise
 
 

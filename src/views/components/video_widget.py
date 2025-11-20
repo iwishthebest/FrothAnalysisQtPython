@@ -4,6 +4,7 @@ from PySide6.QtCore import Qt, QTimer, QSize
 from PySide6.QtGui import QPixmap, QImage, QFont
 import cv2
 
+from config.config_system import config_manager
 from src.services.logging_service import get_logging_service
 from src.services.video_service import get_video_service
 
@@ -14,6 +15,7 @@ class VideoDisplayWidget(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.logger = get_logging_service()
+        self.camera_configs = config_manager.get_camera_configs()
         self.video_labels = []
         self.video_service = get_video_service()
         self.video_timer = None
@@ -39,9 +41,9 @@ class VideoDisplayWidget(QWidget):
         title_label.setStyleSheet("color: #2c3e50;")  # 加深标题颜色
         
         # 标题两侧添加弹簧，使标题居中且在窗口缩放时保持居中
-        title_layout.addItem(QSpacerItem(40, 20, QSizePolicy.Policy.Expanding, QSizePolicy.Minimum))
+        title_layout.addItem(QSpacerItem(40, 20, QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum))
         title_layout.addWidget(title_label)
-        title_layout.addItem(QSpacerItem(40, 20, QSizePolicy.Policy.Expanding, QSizePolicy.Minimum))
+        title_layout.addItem(QSpacerItem(40, 20, QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum))
         
         main_layout.addWidget(title_container)
 
@@ -57,26 +59,19 @@ class VideoDisplayWidget(QWidget):
         grid_layout.setSpacing(20)  # 增大视频之间的间距
         grid_layout.setContentsMargins(15, 15, 15, 15)  # 网格内边距
 
-        # 四个泡沫相机位置配置
-        camera_configs = [
-            {"name": "铅快粗泡沫", "row": 0, "col": 0, "color": "#3498db"},
-            {"name": "铅精一泡沫", "row": 0, "col": 1, "color": "#2ecc71"},
-            {"name": "铅精二泡沫", "row": 1, "col": 0, "color": "#e74c3c"},
-            {"name": "铅精三泡沫", "row": 1, "col": 1, "color": "#9b59b6"}
-        ]
-
-        for config in camera_configs:
-            camera_widget = self.create_camera_widget(config)
+        for camera_config in self.camera_configs:
+            layout = camera_config.layout
+            camera_widget = self.create_camera_widget(layout)
             # 设置视频组件的拉伸策略，使其在窗口变化时均匀缩放
-            grid_layout.addWidget(camera_widget, config["row"], config["col"])
-            grid_layout.setRowStretch(config["row"], 1)
-            grid_layout.setColumnStretch(config["col"], 1)
+            grid_layout.addWidget(camera_widget, layout.row, layout.col)
+            grid_layout.setRowStretch(layout.row, 1)
+            grid_layout.setColumnStretch(layout.col, 1)
 
         main_layout.addWidget(video_container, 1)  # 视频区域占主要空间
 
     def create_camera_widget(self, config):
         """创建单个相机显示组件"""
-        group = QGroupBox(config["name"])
+        group = QGroupBox(config.display_name)
 
         group.setMinimumSize(320, 240)  # 设置最小尺寸
         group.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)  # 允许扩展
