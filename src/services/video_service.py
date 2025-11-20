@@ -142,26 +142,26 @@ class VideoService:
             return {"status": "invalid", "message": "无效的相机索引"}
 
         config = self.camera_configs[camera_index]
-        camera_enabled = self.camera_configs[camera_index].enabled
+        camera_enabled = config.enabled
 
         if not camera_enabled:
             return {
                 "status": "simulation",
-                "name": config["name"],
+                "name": config.name,
                 "message": "模拟模式"
             }
         elif camera_index in self.rtsp_readers:
             reader = self.rtsp_readers[camera_index]
             return {
                 "status": "connected",
-                "name": config["name"],
+                "name": config.name,
                 "message": "连接正常",
                 "retry_count": reader.retry_count
             }
         else:
             return {
                 "status": "disconnected",
-                "name": config["name"],
+                "name": config.name,
                 "message": "连接断开"
             }
 

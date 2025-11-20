@@ -129,6 +129,15 @@ class VideoDisplayWidget(QWidget):
             frame = self.video_service.capture_frame(i)
             self.display_frame(video_info['video_label'], frame)
 
+            # 获取相机状态
+            camera_status = self.video_service.get_camera_status(i)
+            status_message = f"{camera_status['name']} - {camera_status['message']}"
+
+            # 更新状态标签文字
+            is_error = camera_status["status"] not in ["connected", "simulation"]
+            video_info['status_label'].setText(status_message)  # 更新状态文字
+            if hasattr(self, 'set_status'):
+                self.set_status(status_message, is_error)  # 如果有set_status方法，则调用它
     def display_frame(self, label, frame):
         """在QLabel中显示视频帧"""
         try:
