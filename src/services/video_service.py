@@ -1,8 +1,7 @@
 import cv2
 import numpy as np
 from typing import Optional, List, Dict, Any
-# from config.camera_configs import CameraConfig
-from config.config_system import config_manager
+from config.config_system import config_manager, CameraConfig
 from src.services.logging_service import get_logging_service
 from src.common.constants import LogCategory
 from src.utils.video_utils import RTSPStreamReader
@@ -14,59 +13,28 @@ class VideoService:
     def __init__(self):
         """初始化视频服务"""
         self.logger = get_logging_service()
-        # self.camera_configs = CameraConfig.create_default_configs()
         self.camera_configs = config_manager.get_camera_configs()
         self.rtsp_readers: Dict[int, RTSPStreamReader] = {}
         self.simulation_mode = False
         self._initialize_cameras()
 
-    @staticmethod
-    def _get_camera_configs() -> List[Dict[str, Any]]:
-        """获取相机配置"""
-        return [
-            {
-                "name": "铅快粗泡沫",
-                "rtsp_url": "rtsp://admin:fkqxk010@192.168.1.101:554/Streaming/Channels/101",
-                "simulation_color": (100, 150, 200),  # 蓝色调
-                "bubble_count": 30,
-                "bubble_radius_range": (15, 30)
-            },
-            {
-                "name": "铅精一泡沫",
-                "rtsp_url": "rtsp://admin:fkqxk010@192.168.1.102:554/Streaming/Channels/101",
-                "simulation_color": (200, 200, 100),  # 黄色调
-                "bubble_count": 50,
-                "bubble_radius_range": (8, 20)
-            },
-            {
-                "name": "铅精二泡沫",
-                "rtsp_url": "rtsp://admin:fkqxk010@192.168.1.103:554/Streaming/Channels/101",
-                "simulation_color": (150, 100, 100),  # 红色调
-                "bubble_count": 70,
-                "bubble_radius_range": (5, 15)
-            },
-            {
-                "name": "铅精三泡沫",
-                "rtsp_url": "rtsp://admin:fkqxk010@192.168.1.104:554/Streaming/Channels/101",
-                "simulation_color": (100, 200, 150),  # 绿色调
-                "bubble_count": 100,
-                "bubble_radius_range": (3, 10)
-            }
-        ]
-
     def _initialize_cameras(self):
         """初始化相机连接"""
-        for i,config in enumerate(self.camera_configs):
+        # 先清除现有连接
+        self.cleanup()
+
+        for i, config in enumerate(self.camera_configs):
             # 跳过未使用相机
             if not config.enabled:
                 continue
+
             if not self.simulation_mode:
                 # 尝试初始化真实相机
                 reader = RTSPStreamReader(
                     rtsp_url=config.rtsp_url,
-                    window_size=(640, 480),
-                    reconnect_interval=5,
-                    max_retries=10
+                    window_size=tuple(map(int, config.resolution.split('x'))),
+                    reconnect_interval=config.reconnect_interval,
+                    max_retries=config.max_retries
                 )
                 if reader.start():
                     self.rtsp_readers[i] = reader
@@ -95,19 +63,19 @@ class VideoService:
 
         try:
             camera_enabled = self.camera_configs[camera_index].enabled
-            if not camera_enabled or camera_index not in self.rtsp_readers:
+            if not camera_enabled or camera_index not in self.rtsp_readers or self.simulation_mode:
                 return self._capture_simulated_frame(camera_index)
             else:
                 return self.rtsp_readers[camera_index].get_frame(timeout=timeout)
 
         except Exception as e:
             self.logger.error(f"捕获相机 {camera_index} 视频帧时出错: {e}", LogCategory.VIDEO)
-            return None
+            return self._capture_simulated_frame(camera_index)
 
     def _capture_simulated_frame(self, camera_index: int) -> np.ndarray:
         """模拟视频帧捕获"""
         config = self.camera_configs[camera_index]
-        width, height = 640, 480
+        width, height = tuple(map(int, config.resolution.split('x')))
 
         # 创建基础图像
         frame = np.full((height, width, 3), config.simulation_color, dtype=np.uint8)
@@ -120,10 +88,16 @@ class VideoService:
         cv2.putText(frame, config.name, (50, 50),
                     cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
 
+        # 添加状态文本
+        status_text = "模拟模式" if self.simulation_mode else "未连接"
+        cv2.putText(frame, status_text, (50, 100),
+                    cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 0, 0), 2)
+
         # 添加泡沫气泡
-        for _ in range(50):
+        for _ in range(config.bubble_count if hasattr(config, 'bubble_count') else 50):
             x, y = np.random.randint(0, width), np.random.randint(0, height // 2)
-            radius = np.random.randint(8,20)
+            radius_range = getattr(config, 'bubble_radius_range', (8, 20))
+            radius = np.random.randint(radius_range[0], radius_range[1])
             cv2.circle(frame, (x, y), radius, (255, 255, 255), -1)
 
         return frame
@@ -139,16 +113,22 @@ class VideoService:
             相机状态字典
         """
         if camera_index < 0 or camera_index >= len(self.camera_configs):
-            return {"status": "invalid", "message": "无效的相机索引"}
+            return {"status": "invalid", "message": "无效的相机索引", "name": ""}
 
         config = self.camera_configs[camera_index]
         camera_enabled = config.enabled
 
-        if not camera_enabled:
+        if self.simulation_mode:
             return {
                 "status": "simulation",
                 "name": config.name,
                 "message": "模拟模式"
+            }
+        elif not camera_enabled:
+            return {
+                "status": "disabled",
+                "name": config.name,
+                "message": "已禁用"
             }
         elif camera_index in self.rtsp_readers:
             reader = self.rtsp_readers[camera_index]
@@ -183,16 +163,15 @@ class VideoService:
             self.logger.warning("模拟模式下无法重新连接真实相机", LogCategory.VIDEO)
             return False
 
-        if camera_index in self.rtsp_readers:
-            self.rtsp_readers[camera_index].stop()
-            del self.rtsp_readers[camera_index]
+        # 先断开现有连接
+        self.disconnect_camera(camera_index)
 
         config = self.camera_configs[camera_index]
         reader = RTSPStreamReader(
-            rtsp_url=config["rtsp_url"],
-            window_size=(640, 480),
-            reconnect_interval=5,
-            max_retries=10
+            rtsp_url=config.rtsp_url,
+            window_size=tuple(map(int, config.resolution.split('x'))),
+            reconnect_interval=config.reconnect_interval,
+            max_retries=config.max_retries
         )
 
         if reader.start():
@@ -202,6 +181,23 @@ class VideoService:
         else:
             self.logger.error(f"相机 {camera_index} 重新连接失败", LogCategory.VIDEO)
             return False
+
+    def disconnect_camera(self, camera_index: int) -> bool:
+        """
+        断开指定相机连接
+
+        Args:
+            camera_index: 相机索引
+
+        Returns:
+            是否断开成功
+        """
+        if camera_index in self.rtsp_readers:
+            self.rtsp_readers[camera_index].stop()
+            del self.rtsp_readers[camera_index]
+            self.logger.info(f"相机 {camera_index} 已断开连接", LogCategory.VIDEO)
+            return True
+        return False
 
     def set_simulation_mode(self, enabled: bool):
         """
@@ -230,9 +226,15 @@ class VideoService:
             width: 宽度
             height: 高度
         """
-        if camera_index in self.rtsp_readers:
-            self.rtsp_readers[camera_index].set_window_size(width, height)
-            self.logger.info(f"相机 {camera_index} 分辨率设置为 {width}x{height}", LogCategory.VIDEO)
+        if 0 <= camera_index < len(self.camera_configs):
+            # 更新配置
+            self.camera_configs[camera_index].resolution = f"{width}x{height}"
+            config_manager.save_config()
+
+            # 更新读取器
+            if camera_index in self.rtsp_readers:
+                self.rtsp_readers[camera_index].set_window_size(width, height)
+                self.logger.info(f"相机 {camera_index} 分辨率设置为 {width}x{height}", LogCategory.VIDEO)
 
     def cleanup(self):
         """清理资源"""
