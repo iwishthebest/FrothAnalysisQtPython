@@ -56,7 +56,7 @@ class VideoService:
 
     def _initialize_cameras(self):
         """初始化相机连接"""
-        for i,config in enumerate(self.camera_configs):
+        for i, config in enumerate(self.camera_configs):
             # 跳过未使用相机
             if not config.enabled:
                 continue
@@ -70,13 +70,16 @@ class VideoService:
                 )
                 if reader.start():
                     self.rtsp_readers[i] = reader
-                    self.logger.info(f"相机 {i} ({config.name}) 初始化成功", LogCategory.VIDEO)
+                    self.logger.info(
+                        f"相机 {i} ({config.name}) 初始化成功", LogCategory.VIDEO)
                 else:
-                    self.logger.warning(f"相机 {i} ({config.name}) 初始化失败，切换到模拟模式", LogCategory.VIDEO)
+                    self.logger.warning(
+                        f"相机 {i} ({config.name}) 初始化失败，切换到模拟模式", LogCategory.VIDEO)
                     self.simulation_mode = True
                     break
             else:
-                self.logger.info(f"相机 {i} ({config.name}) 使用模拟模式", LogCategory.VIDEO)
+                self.logger.info(
+                    f"相机 {i} ({config.name}) 使用模拟模式", LogCategory.VIDEO)
 
     def capture_frame(self, camera_index: int, timeout: int = 2) -> Optional[np.ndarray]:
         """
@@ -101,7 +104,8 @@ class VideoService:
                 return self.rtsp_readers[camera_index].get_frame(timeout=timeout)
 
         except Exception as e:
-            self.logger.error(f"捕获相机 {camera_index} 视频帧时出错: {e}", LogCategory.VIDEO)
+            self.logger.error(
+                f"捕获相机 {camera_index} 视频帧时出错: {e}", LogCategory.VIDEO)
             return None
 
     def _capture_simulated_frame(self, camera_index: int) -> np.ndarray:
@@ -110,7 +114,8 @@ class VideoService:
         width, height = 640, 480
 
         # 创建基础图像
-        frame = np.full((height, width, 3), config.simulation_color, dtype=np.uint8)
+        frame = np.full((height, width, 3),
+                        config.simulation_color, dtype=np.uint8)
 
         # 添加噪声
         noise = np.random.randint(0, 30, (height, width, 3), dtype=np.uint8)
@@ -122,8 +127,9 @@ class VideoService:
 
         # 添加泡沫气泡
         for _ in range(50):
-            x, y = np.random.randint(0, width), np.random.randint(0, height // 2)
-            radius = np.random.randint(8,20)
+            x, y = np.random.randint(
+                0, width), np.random.randint(0, height // 2)
+            radius = np.random.randint(8, 20)
             cv2.circle(frame, (x, y), radius, (255, 255, 255), -1)
 
         return frame
@@ -189,7 +195,7 @@ class VideoService:
 
         config = self.camera_configs[camera_index]
         reader = RTSPStreamReader(
-            rtsp_url=config["rtsp_url"],
+            rtsp_url=config.rtsp_url,
             window_size=(640, 480),
             reconnect_interval=5,
             max_retries=10
@@ -202,6 +208,31 @@ class VideoService:
         else:
             self.logger.error(f"相机 {camera_index} 重新连接失败", LogCategory.VIDEO)
             return False
+
+    def disconnect_camera(self, camera_index: int) -> bool:
+        """
+        断开指定相机连接
+
+        Args:
+            camera_index: 相机索引
+
+        Returns:
+            是否断开成功
+        """
+        if camera_index < 0 or camera_index >= len(self.camera_configs):
+            self.logger.error(f"无效的相机索引: {camera_index}", LogCategory.VIDEO)
+            return False
+
+        if camera_index in self.rtsp_readers:
+            # 停止并移除RTSP读取器
+            self.rtsp_readers[camera_index].stop()
+            del self.rtsp_readers[camera_index]
+            self.logger.info(f"相机 {camera_index} 已断开连接", LogCategory.VIDEO)
+            return True
+        else:
+            self.logger.warning(
+                f"相机 {camera_index} 未连接，无需断开", LogCategory.VIDEO)
+            return True  # 返回True表示已经处于断开状态
 
     def set_simulation_mode(self, enabled: bool):
         """
@@ -232,7 +263,8 @@ class VideoService:
         """
         if camera_index in self.rtsp_readers:
             self.rtsp_readers[camera_index].set_window_size(width, height)
-            self.logger.info(f"相机 {camera_index} 分辨率设置为 {width}x{height}", LogCategory.VIDEO)
+            self.logger.info(
+                f"相机 {camera_index} 分辨率设置为 {width}x{height}", LogCategory.VIDEO)
 
     def cleanup(self):
         """清理资源"""
