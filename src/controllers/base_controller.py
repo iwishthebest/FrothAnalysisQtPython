@@ -3,25 +3,30 @@
 """
 
 from abc import ABC, abstractmethod
-from typing import Dict, Any, Optional
+from typing import Dict, Any
 import logging
 from PySide6.QtCore import QObject
 
-from ..core.event_bus import EventBus, EventType
-from ..services.logging_service import LoggingService
+# 修改引用
+from ..core.event_bus import get_event_bus, EventType
+from ..services.logging_service import get_logging_service  # 使用 get_logging_service
 
 
 class BaseController(QObject, ABC):
-    """控制器基类，提供通用功能"""
+    """控制器基类"""
 
     def __init__(self, name: str):
         super().__init__()
         self.name = name
-        self.logger = LoggingService().get_logger(f"Controller.{name}")
-        self.event_bus = EventBus()
+        # 修改：直接使用单例获取 Logger
+        self.logger = get_logging_service()  # 或者保持原样 LoggingService().get_logger(f"Controller.{name}")
+
+        # 关键修改：获取全局唯一的 EventBus
+        self.event_bus = get_event_bus()
+
         self.is_initialized = False
         self.is_running = False
-        self.dependencies = {}
+        # self.dependencies = {} # 既然用单例，这个 dependencies 字典其实也可以移除了
 
     @abstractmethod
     def initialize(self):
