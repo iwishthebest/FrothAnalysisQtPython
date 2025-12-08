@@ -110,7 +110,26 @@ class VideoDisplayWidget(QWidget):
         connect_btn = QPushButton("连接")
         connect_btn.setFixedSize(60, 25)
         connect_btn.clicked.connect(lambda checked, idx=config.camera_index: self.connect_camera(idx))
+        # 添加自定义样式以改进按钮外观
+        connect_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #4CAF50; /* 按钮背景色 */
+                border: none; /* 移除边框 */
+                color: white; /* 文字颜色 */
+                padding: 5px 10px; /* 内边距 */
+                text-align: center; /* 文字居中 */
+                text-decoration: none;
+                display: inline-block;
+                font-size: 12px; /* 字体大小 */
+                margin: 1px 2px;
+                cursor: pointer;
+                border-radius: 4px; /* 圆角 */
+            }
 
+            QPushButton:hover {
+                background-color: #45a049; /* 鼠标悬停时的背景色 */
+            }
+        """)
         # 断开按钮
         disconnect_btn = QPushButton("断开")
         disconnect_btn.setFixedSize(60, 25)

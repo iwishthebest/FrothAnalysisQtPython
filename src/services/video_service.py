@@ -57,6 +57,7 @@ class VideoService:
         Returns:
             视频帧或None
         """
+
         if camera_index < 0 or camera_index >= len(self.camera_configs):
             self.logger.error(f"无效的相机索引: {camera_index}", LogCategory.VIDEO)
             return None
