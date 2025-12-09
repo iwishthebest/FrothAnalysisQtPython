@@ -1,257 +1,155 @@
-from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout,
-                               QGridLayout, QGroupBox, QLabel, QSpacerItem, QSizePolicy, QPushButton)
-from PySide6.QtCore import Qt, QTimer, QSize
-from PySide6.QtGui import QPixmap, QImage, QFont
 import cv2
+import numpy as np
+from PySide6.QtWidgets import (QWidget, QGridLayout, QLabel, QFrame,
+                               QVBoxLayout, QHBoxLayout, QSizePolicy)
+from PySide6.QtCore import Qt, Signal, Slot
+from PySide6.QtGui import QImage, QPixmap, QColor
 
 from config.config_system import config_manager
-from src.services.logging_service import get_logging_service
 from src.services.video_service import get_video_service
 
 
+class VideoFrame(QFrame):
+    """单个视频画面帧控件"""
+
+    # 定义固定的显示尺寸 (4:3 比例，经典监控大小)
+    DISPLAY_WIDTH = 640
+    DISPLAY_HEIGHT = 480
+
+    def __init__(self, camera_config, parent=None):
+        super().__init__(parent)
+        self.config = camera_config
+        self.camera_index = camera_config.camera_index
+
+        # 设置边框样式
+        self.setFrameStyle(QFrame.Shape.StyledPanel | QFrame.Shadow.Raised)
+        self.setLineWidth(1)
+
+        # 初始化UI
+        self._setup_ui()
+        self._update_style()
+
+    def _setup_ui(self):
+        """初始化内部布局"""
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(1, 1, 1, 1)
+        layout.setSpacing(0)
+
+        # 1. 标题栏
+        self.header_bg = QWidget()
+        self.header_bg.setFixedHeight(24)
+        header_layout = QHBoxLayout(self.header_bg)
+        header_layout.setContentsMargins(5, 0, 5, 0)
+
+        self.title_label = QLabel(self.config.get_display_name())
+        font = self.title_label.font()
+        font.setBold(True)
+        font.setPointSize(9)
+        self.title_label.setFont(font)
+        self.title_label.setStyleSheet("color: white;")
+
+        self.status_indicator = QLabel()
+        self.status_indicator.setFixedSize(10, 10)
+        self.status_indicator.setStyleSheet("background-color: #95a5a6; border-radius: 5px;")
+
+        header_layout.addWidget(self.title_label)
+        header_layout.addStretch()
+        header_layout.addWidget(self.status_indicator)
+
+        layout.addWidget(self.header_bg)
+
+        # 2. 视频显示区域
+        self.video_label = QLabel()
+        self.video_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        # [修改点 1] 设置固定大小，防止画面填满全屏
+        self.video_label.setFixedSize(self.DISPLAY_WIDTH, self.DISPLAY_HEIGHT)
+        self.video_label.setStyleSheet("background-color: #2c3e50; color: #7f8c8d; font-size: 14px;")
+        self.video_label.setText("模拟信号" if not self.config.enabled else "等待连接...")
+        self.video_label.setScaledContents(True)
+
+        layout.addWidget(self.video_label)
+
+        # 设置 Frame 本身的大小策略为固定，紧贴内容
+        self.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+
+    def _update_style(self):
+        """根据配置更新颜色"""
+        ui_color = self.config.get_ui_color()
+        self.setStyleSheet(
+            f"VideoFrame {{ border: 1px solid {ui_color}; border-radius: 4px; background-color: #34495e; }}")
+        self.header_bg.setStyleSheet(
+            f"background-color: {ui_color}; border-top-left-radius: 3px; border-top-right-radius: 3px;")
+
+    def update_frame(self, frame_data: np.ndarray):
+        """更新视频帧"""
+        if frame_data is None:
+            self.video_label.setText("无信号")
+            self.status_indicator.setStyleSheet("background-color: #e74c3c; border-radius: 5px;")
+            self.video_label.setPixmap(QPixmap())
+            return
+
+        try:
+            # 更新状态灯为绿色
+            self.status_indicator.setStyleSheet("background-color: #2ecc71; border-radius: 5px;")
+
+            # [修改点 2] 预先缩放图像到显示尺寸
+            # 这能极大提高性能，避免 Qt 渲染巨大的 1080p/4K 图像
+            resized_frame = cv2.resize(frame_data, (self.DISPLAY_WIDTH, self.DISPLAY_HEIGHT))
+
+            # OpenCV (BGR) -> Qt (RGB)
+            height, width, channel = resized_frame.shape
+            bytes_per_line = 3 * width
+
+            rgb_frame = cv2.cvtColor(resized_frame, cv2.COLOR_BGR2RGB)
+            q_img = QImage(rgb_frame.data, width, height, bytes_per_line, QImage.Format.Format_RGB888)
+
+            self.video_label.setPixmap(QPixmap.fromImage(q_img))
+
+        except Exception as e:
+            pass
+
+
 class VideoDisplayWidget(QWidget):
-    """视频显示组件 - 显示四个泡沫相机视频流"""
+    """主视频监控网格区域"""
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.logger = get_logging_service()
-        self.camera_configs = config_manager.get_camera_configs()
-        self.video_labels = []
         self.video_service = get_video_service()
-        self.video_timer = None
+        self.frames = {}
         self.setup_ui()
-        self.setup_video_simulation()
 
     def setup_ui(self):
-        """初始化用户界面"""
-        # 主布局使用垂直布局，添加适当边距
-        main_layout = QVBoxLayout(self)
-        main_layout.setContentsMargins(20, 20, 20, 20)  # 增加外边框
-        main_layout.setSpacing(20)  # 增加控件间距
+        """根据配置生成网格布局"""
+        self.main_layout = QGridLayout(self)
+        self.main_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)  # [修改点 3] 让整个网格居中
 
-        # 标题区域
-        title_container = QWidget()
-        title_layout = QHBoxLayout(title_container)
-        title_layout.setContentsMargins(0, 0, 0, 0)
+        ui_config = config_manager.get_ui_config()
+        spacing = ui_config.camera_layout.spacing
 
-        # 标题标签
-        title_label = QLabel("泡沫实时监控")
-        title_label.setFont(QFont("Microsoft YaHei", 18, QFont.Weight.Bold))  # 增大标题字体
-        title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        title_label.setStyleSheet("color: #2c3e50;")  # 加深标题颜色
+        self.main_layout.setContentsMargins(spacing, spacing, spacing, spacing)
+        self.main_layout.setSpacing(spacing)
 
-        # 标题两侧添加弹簧，使标题居中且在窗口缩放时保持居中
-        title_layout.addItem(QSpacerItem(40, 20, QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum))
-        title_layout.addWidget(title_label)
-        title_layout.addItem(QSpacerItem(40, 20, QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum))
+        # 获取所有在布局配置中标记为可见的相机
+        all_cameras = config_manager.get_camera_configs()
+        cameras = [cam for cam in all_cameras if cam.layout.visible]
 
-        main_layout.addWidget(title_container)
+        if not cameras:
+            no_cam_label = QLabel("未配置显示任何相机")
+            no_cam_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            self.main_layout.addWidget(no_cam_label, 0, 0)
+            return
 
-        # 视频网格区域 - 使用带容器的布局，方便控制整体大小
-        video_container = QWidget()
-        video_container.setStyleSheet("""
-            background-color: #f5f5f5;
-            border-radius: 10px;
-            padding: 10px;
-        """)  # 增加背景和圆角，突出视频区域
+        # 动态生成画面
+        for cam_config in cameras:
+            frame = VideoFrame(cam_config)
+            row, col = cam_config.get_ui_position()
+            self.main_layout.addWidget(frame, row, col)
+            self.frames[cam_config.camera_index] = frame
 
-        grid_layout = QGridLayout(video_container)
-        grid_layout.setSpacing(20)  # 增大视频之间的间距
-        grid_layout.setContentsMargins(15, 15, 15, 15)  # 网格内边距
-
-        for camera_config in self.camera_configs:
-            layout = camera_config.layout
-            camera_widget = self.create_camera_widget(camera_config)
-            # 设置视频组件的拉伸策略，使其在窗口变化时均匀缩放
-            grid_layout.addWidget(camera_widget, layout.row, layout.col)
-            grid_layout.setRowStretch(layout.row, 1)
-            grid_layout.setColumnStretch(layout.col, 1)
-
-        main_layout.addWidget(video_container, 1)  # 视频区域占主要空间
-
-    def create_camera_widget(self, config):
-        """创建单个相机显示组件"""
-        group = QGroupBox(config.layout.display_name)
-
-        group.setMinimumSize(320, 240)  # 设置最小尺寸
-        group.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)  # 允许扩展
-
-        layout = QVBoxLayout(group)
-        layout.setContentsMargins(10, 10, 10, 10)
-        layout.setSpacing(10)  # 增加内部控件间距
-
-        # 视频显示标签
-        video_label = QLabel()
-        video_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        video_label.setMinimumSize(300, 200)
-        video_label.setStyleSheet("""
-            QLabel {
-                background-color: #2c3e50;
-                border: 1px solid #34495e;
-                border-radius: 4px;
-            }
-        """)
-        video_label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)  # 视频区域可扩展
-
-        # 状态和控制按钮容器
-        status_control_container = QWidget()
-        status_control_container.setStyleSheet("background-color: #f8f9fa; border-radius: 4px;")
-        status_control_layout = QHBoxLayout(status_control_container)
-        status_control_layout.setContentsMargins(5, 5, 5, 5)
-        status_control_layout.setSpacing(10)
-
-        # 状态标签
-        status_label = QLabel("模拟模式")
-        status_label.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
-        status_label.setStyleSheet("color: #2c3e50; font-size: 13px; font-weight: 500;")
-        status_label.setMinimumWidth(120)
-
-        # 连接按钮
-        connect_btn = QPushButton("连接")
-        connect_btn.setFixedSize(60, 25)
-        connect_btn.clicked.connect(lambda checked, idx=config.camera_index: self.connect_camera(idx))
-        # 添加自定义样式以改进按钮外观
-        connect_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #4CAF50; /* 按钮背景色 */
-                border: none; /* 移除边框 */
-                color: white; /* 文字颜色 */
-                padding: 5px 10px; /* 内边距 */
-                text-align: center; /* 文字居中 */
-                text-decoration: none;
-                display: inline-block;
-                font-size: 12px; /* 字体大小 */
-                margin: 1px 2px;
-                cursor: pointer;
-                border-radius: 4px; /* 圆角 */
-            }
-
-            QPushButton:hover {
-                background-color: #45a049; /* 鼠标悬停时的背景色 */
-            }
-        """)
-        # 断开按钮
-        disconnect_btn = QPushButton("断开")
-        disconnect_btn.setFixedSize(60, 25)
-        disconnect_btn.clicked.connect(lambda checked, idx=config.camera_index: self.disconnect_camera(idx))
-
-        # 添加弹簧使按钮靠右显示
-        status_control_layout.addWidget(status_label)
-        status_control_layout.addItem(QSpacerItem(20, 20, QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum))
-        status_control_layout.addWidget(connect_btn)
-        status_control_layout.addWidget(disconnect_btn)
-
-        layout.addWidget(video_label, 1)  # 视频区域占大部分空间
-        layout.addWidget(status_control_container)
-
-        # 存储引用
-        self.video_labels.append({
-            'video_label': video_label,
-            'status_label': status_label,
-            'config': config,
-            'connect_btn': connect_btn,
-            'disconnect_btn': disconnect_btn
-        })
-
-        return group
-
-    def connect_camera(self, camera_index):
-        """连接指定相机"""
-        self.logger.info(f"尝试连接相机 {camera_index}", "VIDEO")
-        # 更新相机配置为启用状态
-        if 0 <= camera_index < len(self.camera_configs):
-            self.camera_configs[camera_index].enabled = True
-            config_manager.save_config()  # 保存配置更改
-
-        # 如果处于模拟模式，先切换到真实模式
-        if self.video_service.simulation_mode:
-            self.video_service.set_simulation_mode(False)
-        # 重新连接相机
-        success = self.video_service.reconnect_camera(camera_index)
-        if success:
-            self.logger.info(f"相机 {camera_index} 连接成功", "VIDEO")
-        else:
-            self.logger.error(f"相机 {camera_index} 连接失败", "VIDEO")
-        # 立即更新显示
-        self.update_video_frames()
-
-    def disconnect_camera(self, camera_index):
-        """断开指定相机连接"""
-        self.logger.info(f"尝试断开相机 {camera_index}", "VIDEO")
-        # 更新相机配置为禁用状态
-        if 0 <= camera_index < len(self.camera_configs):
-            self.camera_configs[camera_index].enabled = False
-            config_manager.save_config()  # 保存配置更改
-
-        # 断开相机连接
-        self.video_service.disconnect_camera(camera_index)
-        # 立即更新显示
-        self.update_video_frames()
-
-    def setup_video_simulation(self):
-        """设置视频模拟"""
-        self.video_timer = QTimer()
-        self.video_timer.timeout.connect(self.update_video_frames)
-        self.video_timer.start(100)  # 10fps
-
-    def update_video_frames(self):
-        """更新视频帧显示"""
-        for i, video_info in enumerate(self.video_labels):
-            frame = self.video_service.capture_frame(i)
-            self.display_frame(video_info['video_label'], frame)
-
-            # 获取相机状态
-            camera_status = self.video_service.get_camera_status(i)
-            status_message = f"{camera_status['name']} - {camera_status['message']}"
-
-            # 更新状态标签文字
-            is_error = camera_status["status"] not in ["connected", "simulation"]
-            video_info['status_label'].setText(status_message)  # 更新状态文字
-
-            # 更新按钮状态
-            if camera_status["status"] == "connected":
-                video_info['connect_btn'].setEnabled(False)
-                video_info['disconnect_btn'].setEnabled(True)
-            else:
-                video_info['connect_btn'].setEnabled(True)
-                video_info['disconnect_btn'].setEnabled(False)
-
-            if hasattr(self, 'set_status'):
-                self.set_status(status_message, is_error)  # 如果有set_status方法，则调用它
-
-    def display_frame(self, label, frame):
-        """在QLabel中显示视频帧"""
-        try:
-            if frame is None:
-                return
-
-            # 转换颜色空间
-            rgb_image = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            h, w, ch = rgb_image.shape
-            bytes_per_line = ch * w
-
-            # 创建QImage
-            qt_image = QImage(rgb_image.data, w, h, bytes_per_line,
-                              QImage.Format.Format_RGB888)
-
-            # 缩放图像以适应标签大小，保持比例并填充
-            pixmap = QPixmap.fromImage(qt_image)
-            scaled_pixmap = pixmap.scaled(
-                label.width(),
-                label.height(),
-                Qt.AspectRatioMode.KeepAspectRatio,
-                Qt.TransformationMode.SmoothTransformation  # 平滑缩放
-            )
-
-            label.setPixmap(scaled_pixmap)
-
-        except Exception as e:
-            self.logger.error(f"显示视频帧时出错: {e}", "VIDEO")
-
+    @Slot()
     def update_display(self):
-        """更新显示（供外部调用）"""
-        self.update_video_frames()
-
-    def sizeHint(self):
-        """设置默认大小提示"""
-        return QSize(1280, 960)
+        """被定时器调用，刷新所有画面"""
+        for cam_index, frame_widget in self.frames.items():
+            image = self.video_service.capture_frame(cam_index, timeout=0.1)
+            frame_widget.update_frame(image)
