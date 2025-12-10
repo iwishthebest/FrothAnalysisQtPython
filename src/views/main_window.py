@@ -1,6 +1,6 @@
 import sys
 from PySide6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout,
-                               QHBoxLayout, QStackedWidget)
+                               QHBoxLayout, QStackedWidget, QMessageBox)  # [修改] 导入 QMessageBox
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QIcon, QFont, QKeyEvent
 
@@ -8,7 +8,7 @@ from .components.status_bar import StatusBar
 
 from src.services.logging_service import get_logging_service, LogLevel, LogCategory
 from src.services.video_service import get_video_service
-
+from src.services.opc_service import get_opc_service
 
 class FoamMonitoringSystem(QMainWindow):
     """铅浮选监测系统主窗口"""
@@ -24,9 +24,9 @@ class FoamMonitoringSystem(QMainWindow):
         if event.key() == Qt.Key.Key_F5:
             # 按下F5键时重载QSS
             self.reload_qss()
-            event.accept()  # 标记事件已处理
+            event.accept()
         else:
-            super().keyPressEvent(event)  # 其他按键按默认方式处理
+            super().keyPressEvent(event)
 
     def load_stylesheet(self):
         """加载样式表"""
@@ -35,16 +35,11 @@ class FoamMonitoringSystem(QMainWindow):
                 stylesheet = f.read()
                 self.setStyleSheet(stylesheet)
         except FileNotFoundError:
-            # 如果文件不存在，使用内置的样式字符串
-            tech_stylesheet = """
-            /* 这里放置上面的样式表内容 */
-            """
-            self.setStyleSheet(tech_stylesheet)
+            self.logger.warning("样式文件未找到", "SYSTEM")
 
     def reload_qss(self):
         """重载QSS样式表"""
         self.load_stylesheet()
-        # self.status_label.setText("样式已重载 (F5)")
         self.logger.info("reload qss", "SYSTEM")
 
     def setup_ui(self):
@@ -113,10 +108,7 @@ class FoamMonitoringSystem(QMainWindow):
 
     def setup_timers(self):
         """设置定时器"""
-        # [修改] 移除了 video_timer
-        # 现在视频更新由 VideoService 内部的 QThread 驱动
-
-        # 1. 业务数据更新 (1秒) - 仅负责OPC和图表
+        # 1. 业务数据更新 (1秒)
         self.data_timer = QTimer()
         self.data_timer.timeout.connect(self.update_business_data)
         self.data_timer.start(1000)
@@ -126,7 +118,6 @@ class FoamMonitoringSystem(QMainWindow):
         self.status_timer.timeout.connect(self.update_system_status)
         self.status_timer.start(5000)
 
-    # [修改] 移除了 update_video_frame 方法
     def on_tab_changed(self, index):
         """处理选项卡切换"""
         tab_names = ["monitoring", "control", "history", "settings"]
@@ -143,9 +134,7 @@ class FoamMonitoringSystem(QMainWindow):
     def update_business_data(self):
         """更新业务数据"""
         try:
-            # 仅更新右侧面板和状态栏
-            if hasattr(self, 'control_panel'):
-                self.control_panel.monitoring_page.update_data()
+            # 状态栏和其他组件可能仍需要定时更新
             if hasattr(self, 'status_bar'):
                 self.status_bar.update_display()
         except Exception as e:
@@ -156,11 +145,34 @@ class FoamMonitoringSystem(QMainWindow):
         self.status_bar.update_time()
 
     def closeEvent(self, event):
-        self.data_timer.stop()
-        self.status_timer.stop()
+        """[修改] 处理窗口关闭事件，增加确认提示"""
 
-        # 清理视频线程
-        get_video_service().cleanup()
+        # 弹出确认对话框
+        reply = QMessageBox.question(
+            self,
+            '系统退出',
+            '确定要退出铅浮选监控系统吗？\n所有后台服务（视频/OPC）将停止运行。',
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No
+        )
 
-        self.logger.info("系统已关闭", "SYSTEM")
-        super().closeEvent(event)
+        if reply == QMessageBox.StandardButton.Yes:
+            # 用户选择"是"，执行清理并关闭
+            self.logger.info("用户确认退出系统", "SYSTEM")
+
+            # 停止定时器
+            if hasattr(self, 'data_timer') and self.data_timer.isActive():
+                self.data_timer.stop()
+            if hasattr(self, 'status_timer') and self.status_timer.isActive():
+                self.status_timer.stop()
+
+            # 清理视频线程
+            get_video_service().cleanup()
+
+            # 清理OPC服务
+            get_opc_service().cleanup()
+
+            event.accept()  # 接受关闭事件，窗口将关闭
+        else:
+            # 用户选择"否"，取消关闭
+            event.ignore()  # 忽略关闭事件，窗口保持打开
