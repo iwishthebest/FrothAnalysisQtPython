@@ -1,22 +1,10 @@
-matplotlib
-python-snap7
-opencv-python
-pyqtgraph
-numpy
-# requirements.txt
-# This file lists the dependencies for the PySide6 application.
-# To install the dependencies, run:
-# pip install -r requirements.txt
-# Make sure to use a virtual environment to avoid conflicts with other packages.
-# PySide6 is the official set of Python bindings for Qt libraries, enabling the development of cross-platform applications with a native look and feel.
-# The version specified here is 6.10.0, which is compatible with the code provided.
-# You can change the version number if you need a different version of PySide6.
-# For more information about PySide6, visit the official documentation: https://doc.qt.io/qtforpython/
-# Always check for the latest version of PySide6 on PyPI: https://pypi.org/project/PySide6/
-# Additional dependencies can be added to this file as needed for your application.
 PySide6==6.10.0
-opcua==0.98.13
+opencv-python==4.12.0.88
+pyqtgraph==0.13.7
+numpy==2.2.6
 requests==2.32.5
+python-snap7==2.0.2
+cryptography==46.0.3
+matplotlib==3.10.7
 pandas==2.3.3
-# Remember to keep this file updated as you add or remove dependencies from your project.
-# End of requirements.txt
+opcua==0.98.13
