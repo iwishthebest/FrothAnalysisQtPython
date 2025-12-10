@@ -83,51 +83,64 @@ class OPCWorker(QObject):
             QThread.msleep(int(sleep_time * 1000))
 
     def _fetch_process_data(self) -> Dict[str, Any]:
+        """执行一次 HTTP 请求获取数据"""
         if not self._tag_cache:
             return {}
+
         try:
+            # 1. 获取原始标签字符串
             tag_param = ",".join(self._tag_cache)
-            # 构造参数字典
-            payload = {"tagNameList": tag_param}
 
-            # === [修改] 优先尝试 POST 请求 ===
-            try:
-                # 尝试以表单形式提交 (application/x-www-form-urlencoded)
-                response = self.session.post(
-                    url=self.opc_url,
-                    data=payload,
-                    timeout=self._timeout
-                )
-                # 如果服务器不支持 POST (返回 404 或 405)，会抛出错误，进入 except 块
-                response.raise_for_status()
+            # === [核心修改] 手动双重转义 ===
+            # 将 '#' 替换为 '%23'。
+            # requests 会自动将 '%' 编码为 '%25'，最终发送 '%2523'
+            # 这通常能骗过那些"自作聪明"提前解码的服务器
+            if '#' in tag_param:
+                tag_param = tag_param.replace('#', '%23')
 
-            except Exception:
-                # === [回退] 如果 POST 失败，回退到 GET 并打印调试 URL ===
-                response = self.session.get(
-                    url=self.opc_url,
-                    params=payload,
-                    timeout=self._timeout
-                )
-                # [调试] 打印实际发送的 URL，检查 # 是否变成了 %23
-                # 这一行会在日志中显示最终生成的 URL，请截图发给我分析
-                if "#" in tag_param:
-                    self.logger.warning(f"GET请求URL调试: {response.url}", LogCategory.OPC)
+            params = {"tagNameList": tag_param}
+
+            # === [回退] 必须改回 session.get ===
+            response = self.session.get(
+                url=self.opc_url,
+                params=params,
+                timeout=self._timeout
+            )
+
+            # [调试日志] 如果包含#，打印最终发出的URL，方便排查
+            # 注意：requests 构造的 URL 属性是解码后的，可能看不出 %25，但逻辑是生效的
+            if '%23' in tag_param:
+                # 仅在调试时取消注释，避免日志刷屏
+                # self.logger.debug(f"尝试双重编码URL: {response.url}", LogCategory.OPC)
+                pass
 
             if response.status_code == 200:
                 data = response.json()
                 values = {}
+
                 for item in data.get("data", []):
                     tag_name = item['TagName'].strip()
                     try:
                         val = float(item['Value'])
-                        values[tag_name] = {'value': val, 'timestamp': item['Time'], 'quality': 'Good'}
-                    except:
-                        values[tag_name] = {'value': 0.0, 'timestamp': item['Time'], 'quality': 'Bad'}
+                        values[tag_name] = {
+                            'value': val,
+                            'timestamp': item['Time'],
+                            'quality': 'Good'
+                        }
+                    except (ValueError, TypeError):
+                        # 转换失败记录为 None 或 0
+                        values[tag_name] = {
+                            'value': 0.0,
+                            'timestamp': item['Time'],
+                            'quality': 'Bad'
+                        }
                 return values
             else:
                 self.logger.warning(f"OPC请求返回状态码: {response.status_code}", LogCategory.OPC)
                 return {}
+
         except requests.exceptions.RequestException:
+            # 网络错误不需要打印堆栈，以免刷屏
             return {}
         except Exception as e:
             self.logger.error(f"获取数据异常: {e}", LogCategory.OPC)
