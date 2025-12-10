@@ -111,16 +111,23 @@ class FoamMonitoringSystem(QMainWindow):
         self.setup_timers()
 
     def setup_timers(self):
-        """设置定时器"""
-        # 数据更新定时器
-        self.data_timer = QTimer()
-        self.data_timer.timeout.connect(self.update_data)
-        self.data_timer.start(1000)  # 1秒更新
+        """设置定时器 - 分离视频刷新和数据采集"""
 
-        # 状态更新定时器
+        # 1. 视频刷新定时器 (高频: 33ms ≈ 30 FPS)
+        self.video_timer = QTimer()
+        self.video_timer.timeout.connect(self.update_video_frame)
+        self.video_timer.start(33)
+
+        # 2. 业务数据更新定时器 (低频: 1000ms)
+        # 包括 OPC 数据采集、控制面板数值更新
+        self.data_timer = QTimer()
+        self.data_timer.timeout.connect(self.update_business_data)
+        self.data_timer.start(1000)
+
+        # 3. 系统状态更新定时器 (超低频: 5000ms)
         self.status_timer = QTimer()
-        self.status_timer.timeout.connect(self.update_status)
-        self.status_timer.start(5000)  # 5秒更新
+        self.status_timer.timeout.connect(self.update_system_status)
+        self.status_timer.start(5000)
 
     def on_tab_changed(self, index):
         """处理选项卡切换"""
@@ -135,28 +142,36 @@ class FoamMonitoringSystem(QMainWindow):
 
         self.logger.info(f"切换到{current_tab}界面")
 
-    def update_data(self):
-        """更新数据"""
-        try:
-            # 更新视频显示
-            self.video_page.update_display()
+    def update_video_frame(self):
+        """仅更新视频画面"""
+        # 只有当前显示的是视频页时才刷新，节省资源
+        if self.left_stack.currentWidget() == self.video_page:
+            try:
+                self.video_page.update_display()
+            except Exception as e:
+                # 避免控制台疯狂刷屏，可以降低日志级别或加限流
+                pass
 
-            # 更新监控页面数据
+    def update_business_data(self):
+        """更新业务数据 (OPC/图表)"""
+        try:
+            # 更新右侧监控页面的数值
             self.control_panel.monitoring_page.update_data()
 
-            # 更新状态栏
+            # 更新状态栏的数据部分
             self.status_bar.update_display()
 
         except Exception as e:
-            self.logger.info(f"更新数据时出错: {e}")
+            self.logger.error(f"更新业务数据出错: {e}", "SYSTEM")
 
-    def update_status(self):
-        """更新系统状态"""
+    def update_system_status(self):
+        """更新系统状态 (时间/连接状态)"""
         self.status_bar.update_time()
 
     def closeEvent(self, event):
         """处理窗口关闭事件"""
+        self.video_timer.stop()  # 停止视频定时器
         self.data_timer.stop()
         self.status_timer.stop()
-        self.logger.info("系统已关闭")
+        self.logger.info("系统已关闭", "SYSTEM")
         super().closeEvent(event)
