@@ -87,14 +87,31 @@ class OPCWorker(QObject):
             return {}
         try:
             tag_param = ",".join(self._tag_cache)
-            params = {"tagNameList": tag_param}
+            # 构造参数字典
+            payload = {"tagNameList": tag_param}
 
-            # 使用 session.get
-            response = self.session.get(
-                url=self.opc_url,
-                params=params,
-                timeout=self._timeout
-            )
+            # === [修改] 优先尝试 POST 请求 ===
+            try:
+                # 尝试以表单形式提交 (application/x-www-form-urlencoded)
+                response = self.session.post(
+                    url=self.opc_url,
+                    data=payload,
+                    timeout=self._timeout
+                )
+                # 如果服务器不支持 POST (返回 404 或 405)，会抛出错误，进入 except 块
+                response.raise_for_status()
+
+            except Exception:
+                # === [回退] 如果 POST 失败，回退到 GET 并打印调试 URL ===
+                response = self.session.get(
+                    url=self.opc_url,
+                    params=payload,
+                    timeout=self._timeout
+                )
+                # [调试] 打印实际发送的 URL，检查 # 是否变成了 %23
+                # 这一行会在日志中显示最终生成的 URL，请截图发给我分析
+                if "#" in tag_param:
+                    self.logger.warning(f"GET请求URL调试: {response.url}", LogCategory.OPC)
 
             if response.status_code == 200:
                 data = response.json()
