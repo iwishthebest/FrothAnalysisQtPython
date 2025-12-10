@@ -14,7 +14,6 @@ from src.utils.video_utils import RTSPStreamReader
 class CameraWorker(QObject):
     """
     相机工作线程类
-    负责：捕获帧 -> 缩放 -> 格式转换 -> 发送信号
     """
     frame_ready = Signal(int, QImage)
     status_changed = Signal(int, dict)
@@ -24,34 +23,42 @@ class CameraWorker(QObject):
         self.camera_index = camera_index
         self.config = config
         self.running = False
+        self.force_exit = False  # [新增] 强制退出标志
         self.simulation_mode = False
         self.reader: Optional[RTSPStreamReader] = None
-        self._mutex = QMutex()
-
         self.display_size = (640, 480)
 
     def start_work(self):
         """线程启动入口"""
         self.running = True
+        self.force_exit = False
         self.logger = get_logging_service()
         self._initialize_connection()
         self._capture_loop()
 
-    def stop_work(self):
-        """停止工作"""
+    def stop_work(self, force_exit=False):
+        """停止工作
+        Args:
+            force_exit: 如果为 True，表示程序即将关闭，跳过耗时的资源释放
+        """
         self.running = False
+        self.force_exit = force_exit
 
     def set_simulation_mode(self, enabled: bool):
         self.simulation_mode = enabled
         if enabled and self.reader:
             try:
                 self.reader.stop()
-            except Exception:
+            except:
                 pass
             self.reader = None
 
     def _initialize_connection(self):
         if not self.config.enabled:
+            return
+
+        # 如果已经处于强制退出状态，直接返回，不进行耗时的连接
+        if self.force_exit:
             return
 
         if not self.simulation_mode:
@@ -78,65 +85,68 @@ class CameraWorker(QObject):
     def _capture_loop(self):
         """主捕获循环"""
         while self.running:
+            # [关键] 每次循环前检查，如果是强制退出，立即中断，不处理任何逻辑
+            if self.force_exit:
+                return  # 直接返回，跳过 finally 块中的清理
+
             loop_start = time.time()
             frame = None
 
-            # 1. 获取帧
             try:
+                # 获取帧
                 if not self.config.enabled:
                     frame = self._generate_simulation_frame(text="DISABLED")
-                    self._smart_sleep(200)  # 使用智能睡眠
+                    self._smart_sleep(200)
                 elif self.simulation_mode or self.reader is None:
                     frame = self._generate_simulation_frame()
                 else:
                     frame = self.reader.get_frame(timeout=0.1)
                     if frame is None:
                         frame = self._generate_simulation_frame(text="NO SIGNAL")
-            except Exception as e:
-                print(f"Capture error: {e}")
+            except Exception:
                 frame = self._generate_simulation_frame(text="ERROR")
 
-            # 2. 处理帧
-            if self.running and frame is not None:
+            # 处理帧
+            if self.running and not self.force_exit and frame is not None:
                 q_image = self._process_frame(frame)
                 if q_image:
                     self.frame_ready.emit(self.camera_index, q_image)
 
-            # 3. 控制帧率
+            # 控制帧率
             elapsed = (time.time() - loop_start) * 1000
             sleep_time = max(1, int(33 - elapsed))
             self._smart_sleep(sleep_time)
 
-        # 退出循环后清理
-        if self.reader:
+        # === 退出循环后的清理 ===
+        # [核心修复]：如果是强制退出 (App关闭)，直接跳过 reader.stop()。
+        # reader.stop() 会调用 cv2.release()，这在断流时可能会卡死 GIL，导致主线程卡死。
+        # 既然进程都要关了，让 OS 去回收 socket 资源即可。
+        if not self.force_exit and self.reader:
             try:
                 self.reader.stop()
             except Exception as e:
                 print(f"相机 {self.camera_index} 资源释放异常: {e}")
 
     def _smart_sleep(self, ms):
-        """[优化] 智能切片睡眠，每10ms检查一次退出标志，防止卡死"""
-        if ms <= 0: return
+        """智能切片睡眠"""
+        if ms <= 0 or self.force_exit: return
 
-        # 如果睡眠时间很短，直接睡
-        if ms < 20:
-            QThread.msleep(ms)
-            return
-
-        # 如果时间较长，分段睡，随时响应退出
+        # 将长睡眠切成小片
         steps = ms // 10
         for _ in range(steps):
-            if not self.running:
+            if not self.running or self.force_exit:
                 return
             QThread.msleep(10)
 
-        # 补齐剩下的时间
         remainder = ms % 10
-        if remainder > 0 and self.running:
+        if remainder > 0 and self.running and not self.force_exit:
             QThread.msleep(remainder)
 
     def _process_frame(self, frame_bgr: np.ndarray) -> Optional[QImage]:
         try:
+            # 再次检查，防止处理时退出
+            if self.force_exit: return None
+
             frame_resized = cv2.resize(frame_bgr, self.display_size)
             frame_rgb = cv2.cvtColor(frame_resized, cv2.COLOR_BGR2RGB)
             h, w, ch = frame_rgb.shape
@@ -165,11 +175,12 @@ class CameraWorker(QObject):
         return frame
 
     def _emit_status(self, status_code, message):
-        self.status_changed.emit(self.camera_index, {
-            "status": status_code,
-            "message": message,
-            "name": self.config.name
-        })
+        if not self.force_exit:
+            self.status_changed.emit(self.camera_index, {
+                "status": status_code,
+                "message": message,
+                "name": self.config.name
+            })
 
 
 class VideoService(QObject):
@@ -208,26 +219,24 @@ class VideoService(QObject):
             worker.set_simulation_mode(enabled)
 
     def cleanup(self):
-        """[优化] 极速清理资源，防止界面卡死"""
-        self.logger.info("正在停止所有视频线程...", LogCategory.VIDEO)
+        """[最终优化] 弃船逃生式清理，确保零卡顿退出"""
+        self.logger.info("正在停止所有视频线程 (FORCE EXIT)...", LogCategory.VIDEO)
 
-        # 1. 广播停止：先告诉所有 Worker 停止干活
+        # 1. 发出弃船指令
+        # 告诉所有 Worker：马上要关机了，手里有什么资源直接扔掉，不要尝试关闭连接，直接 return。
         for worker in self.workers.values():
-            worker.stop_work()
+            worker.stop_work(force_exit=True)
 
-        # 2. 广播退出：告诉所有线程结束事件循环
+        # 2. 退出线程循环
         for thread in self.threads.values():
             thread.quit()
 
-        # 3. 极速等待：每个线程只等 100ms
-        # 在程序退出阶段，我们不需要优雅地等待资源释放，
-        # 如果 100ms 内线程没退出来（比如卡在 opencv release），
-        # 我们直接放弃等待，让操作系统去回收进程资源。
-        # 这样可以保证界面瞬间关闭，不会卡顿。
+        # 3. 极速等待 (50ms)
+        # 我们给线程 50ms 的时间去响应 return。
+        # 如果它们正卡在 cv2.VideoCapture() 这种死胡同里出不来，我们就不等了。
+        # Python 进程退出时会强制清理掉它们。
         for i, thread in self.threads.items():
-            if not thread.wait(100):
-                # self.logger.warning(f"相机线程 {i} 退出超时，强制跳过", LogCategory.VIDEO)
-                pass
+            thread.wait(50)
 
         self.logger.info("视频服务资源清理完成", LogCategory.VIDEO)
 
