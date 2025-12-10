@@ -12,7 +12,8 @@ from typing import Dict, List, Any, Optional
 from datetime import datetime
 from threading import Lock
 from pathlib import Path
-
+from src.services.logging_service import get_logging_service
+from src.common.constants import LogCategory
 # 尝试导入基类
 try:
     from . import BaseService, ServiceError, ServiceStatus
@@ -29,6 +30,8 @@ class DataService(BaseService):
 
     def __init__(self, db_path: str = "data/system.db", csv_dir: str = "data/csv"):
         super().__init__("data_service")
+        self.logger = get_logging_service()
+
         self.db_path = db_path
         self.csv_dir = Path(csv_dir)
 
@@ -123,7 +126,7 @@ class DataService(BaseService):
             self._save_to_csv(timestamp, flat_data)
 
         except Exception as e:
-            print(f"数据保存失败: {e}")
+            self.logger.error(f"数据保存失败: {e}", LogCategory.DATA)
 
     def _save_to_sqlite(self, timestamp, flat_data: Dict[str, Any]):
         """保存到 SQLite"""
