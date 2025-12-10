@@ -164,8 +164,8 @@ class MonitoringPage(QWidget):
             return default
 
         # 根据你的 tagList.csv 或实际标签名修改这里
-        val_pb = get_val("KYFX.grade_Pb", 0.0)
-        val_zn = get_val("KYFX.grade_Zn", 0.0)
+        val_pb = get_val("KYFX.kyfx_gqxk_grade_Pb", 0.0)
+        val_zn = get_val("KYFX.kyfx_gqxk_grade_Zn", 0.0)
         val_rec = get_val("KYFX.recovery_rate", 0.0)
         timestamp = datetime.now().strftime("%H:%M:%S")
 

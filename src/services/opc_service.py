@@ -30,6 +30,9 @@ class OPCWorker(QObject):
         self._timeout = 10
         self._poll_interval = 1.0  # 采集间隔(秒)
 
+        # === [新增] 创建 Session 对象 ===
+        self.session = requests.Session()
+
     def start_work(self):
         """线程启动入口"""
         self.running = True
@@ -40,6 +43,11 @@ class OPCWorker(QObject):
     def stop_work(self):
         """停止工作"""
         self.running = False
+        # === [新增] 关闭 Session ===
+        try:
+            self.session.close()
+        except:
+            pass
 
     def _load_tags(self):
         """加载标签列表"""
@@ -104,7 +112,8 @@ class OPCWorker(QObject):
             tag_param = ",".join(self._tag_cache)
             params = {"tagNameList": tag_param}
 
-            response = requests.get(
+            # === [修改] 使用 self.session.get 而不是 requests.get ===
+            response = self.session.get(
                 url=self.opc_url,
                 params=params,
                 timeout=self._timeout

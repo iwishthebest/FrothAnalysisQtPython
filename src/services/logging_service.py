@@ -92,6 +92,12 @@ class LoggingService(QObject):
             root_logger.addHandler(file_handler)
             root_logger.addHandler(console_handler)
 
+            # === [新增代码] 屏蔽第三方库的繁杂日志 ===
+            # 将 urllib3 (requests底层) 的日志级别设置为 WARNING，只有出错了才打印
+            logging.getLogger("urllib3").setLevel(logging.WARNING)
+            # 如果还用了 matplotlib 或其他库，也可以在这里屏蔽
+            logging.getLogger("matplotlib").setLevel(logging.WARNING)
+
             # 应用程序专用日志记录器
             self.logger = logging.getLogger('FrothAnalysisSystem')
             self.logger.setLevel(logging.DEBUG)
@@ -99,7 +105,8 @@ class LoggingService(QObject):
         except Exception as e:
             raise ServiceError(f"设置日志系统失败: {e}")
 
-    def log(self, message: str, level: LogLevel = LogLevel.INFO, category: Union[str, LogCategory] = LogCategory.SYSTEM):
+    def log(self, message: str, level: LogLevel = LogLevel.INFO,
+            category: Union[str, LogCategory] = LogCategory.SYSTEM):
         """
         记录日志
 
@@ -272,6 +279,7 @@ class LoggingService(QObject):
 
 # 单例模式实例
 _logging_service_instance = None
+
 
 def get_logging_service() -> LoggingService:
     """获取日志服务单例实例"""
