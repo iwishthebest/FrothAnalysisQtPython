@@ -56,10 +56,10 @@ class MonitoringPage(QWidget):
         self.lbl_zn_grade = self.create_metric_label()
         self.lbl_recovery = self.create_metric_label()
 
-        # 组装组件
-        layout.addLayout(self.create_metric_item("铅品位 (Pb)", self.lbl_pb_grade, "%"))
-        layout.addLayout(self.create_metric_item("锌品位 (Zn)", self.lbl_zn_grade, "%"))
-        layout.addLayout(self.create_metric_item("回收率", self.lbl_recovery, "%"))
+        # [修改点 1] 使用 addWidget 而不是 addLayout，因为 create_metric_item 现在返回的是 Widget
+        layout.addWidget(self.create_metric_item("铅品位 (Pb)", self.lbl_pb_grade, "%"))
+        layout.addWidget(self.create_metric_item("锌品位 (Zn)", self.lbl_zn_grade, "%"))
+        layout.addWidget(self.create_metric_item("回收率", self.lbl_recovery, "%"))
 
         return widget
 
@@ -73,6 +73,7 @@ class MonitoringPage(QWidget):
     def create_metric_item(self, title, value_label, unit):
         """创建单个指标组件布局"""
         v_layout = QVBoxLayout()
+        v_layout.setContentsMargins(10, 10, 10, 10)  # 稍微加点内边距
 
         title_lbl = QLabel(title)
         title_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -91,8 +92,9 @@ class MonitoringPage(QWidget):
         container.setLayout(v_layout)
         container.setStyleSheet("background-color: white; border-radius: 8px; border: 1px solid #bdc3c7;")
 
-        # 返回布局给父级添加 (或者返回 container widget)
-        return v_layout
+        # [修改点 2] 返回 container (Widget) 而不是 v_layout
+        # 这样 container 就会被父级引用，不会被垃圾回收，layout 也自然安全了
+        return container
 
     def create_charts_section(self):
         """创建图表区域"""
