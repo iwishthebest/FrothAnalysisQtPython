@@ -13,12 +13,10 @@ from datetime import datetime
 from threading import Lock
 from pathlib import Path
 
-# 假设 BaseService 在同级目录或父级
-# 如果报错，请保留你原本的 import 方式
+# 尝试导入基类
 try:
     from . import BaseService, ServiceError, ServiceStatus
 except ImportError:
-    # 简单的兼容性 fallback
     from PySide6.QtCore import QObject
     class BaseService(QObject):
         def __init__(self, name): super().__init__()
@@ -42,12 +40,10 @@ class DataService(BaseService):
         self._cache_lock = Lock()
 
         # 关键 KPI 定义 (用于 CSV 表头和 数据库字段)
-        # 这里的键名需要和 OPC/Video 服务发出的数据键名对应
         self.kpi_keys = [
-            "KYFX.kyfx_gqxk_grade_Pb",  # 铅品位
-            "KYFX.kyfx_gqxk_grade_Zn",  # 锌品位
+            "KYFX.kyfx_dqxk_grade_Pb",  # 铅品位
+            "KYFX.kyfx_dqxk_grade_Zn",  # 锌品位
             "KYFX.kyfx_yk_grade_Pb",    # 原矿/回收率参考
-            # 可以根据 tagList.csv 继续添加...
         ]
 
     def start(self) -> bool:
@@ -66,11 +62,16 @@ class DataService(BaseService):
         self.status = ServiceStatus.STOPPED
         return True
 
+    # === [修复] 补回缺失的 restart 方法 ===
+    def restart(self) -> bool:
+        """重启数据服务"""
+        self.stop()
+        return self.start()
+
     def _init_database(self) -> None:
         """初始化数据库表结构"""
         with sqlite3.connect(self.db_path) as conn:
-            # 1. 过程数据表 (存储关键 KPI)
-            # 我们使用 JSON 字段存储完整数据，独立字段存储 KPI 以便快速查询
+            # 1. 过程数据表
             conn.execute('''
                 CREATE TABLE IF NOT EXISTS process_history (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -78,7 +79,7 @@ class DataService(BaseService):
                     grade_pb REAL,
                     grade_zn REAL,
                     recovery REAL,
-                    raw_data JSON  -- 存储完整数据的 JSON 字符串，防止漏掉非 KPI 字段
+                    raw_data JSON
                 )
             ''')
 
@@ -102,12 +103,12 @@ class DataService(BaseService):
         try:
             timestamp = datetime.now()
 
-            # 1. 更新内存缓存 (用于界面实时查询)
+            # 1. 更新内存缓存
             with self._cache_lock:
                 self._cache.update(data)
                 self._cache['last_updated'] = timestamp
 
-            # 2. 数据扁平化处理 (OPC数据通常是 {'tag': {'value': 1.0}} 格式)
+            # 2. 数据扁平化处理
             flat_data = {}
             for key, val in data.items():
                 if isinstance(val, dict) and 'value' in val:
@@ -115,10 +116,10 @@ class DataService(BaseService):
                 else:
                     flat_data[key] = val
 
-            # 3. 存入 SQLite (用于软件内部历史回放)
+            # 3. 存入 SQLite
             self._save_to_sqlite(timestamp, flat_data)
 
-            # 4. 存入 CSV (用于外部 Excel 分析)
+            # 4. 存入 CSV
             self._save_to_csv(timestamp, flat_data)
 
         except Exception as e:
@@ -129,12 +130,10 @@ class DataService(BaseService):
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.cursor()
 
-            # 提取关键指标，如果没有则存 None
-            grade_pb = flat_data.get("KYFX.kyfx_gqxk_grade_Pb")
-            grade_zn = flat_data.get("KYFX.kyfx_gqxk_grade_Zn")
-            recovery = flat_data.get("KYFX.kyfx_yk_grade_Pb") # 暂代
+            grade_pb = flat_data.get("KYFX.kyfx_dqxk_grade_Pb")
+            grade_zn = flat_data.get("KYFX.kyfx_dqxk_grade_Zn")
+            recovery = flat_data.get("KYFX.kyfx_yk_grade_Pb")
 
-            # 序列化所有数据以便后续查阅
             json_dump = json.dumps(flat_data)
 
             cursor.execute('''
@@ -145,34 +144,26 @@ class DataService(BaseService):
 
     def _save_to_csv(self, timestamp, flat_data: Dict[str, Any]):
         """保存到 CSV (按天分文件)"""
-        # 生成当天的文件名: data/csv/20251210_data.csv
         filename = f"{timestamp.strftime('%Y%m%d')}_process_data.csv"
         filepath = self.csv_dir / filename
 
         file_exists = filepath.exists()
 
-        with open(filepath, 'a', newline='', encoding='utf-8-sig') as f: # utf-8-sig 方便 Excel 打开不乱码
+        with open(filepath, 'a', newline='', encoding='utf-8-sig') as f:
             writer = csv.writer(f)
 
-            # 如果是新文件，先写入表头
             if not file_exists:
                 header = ["Timestamp"] + self.kpi_keys + ["Raw_JSON"]
                 writer.writerow(header)
 
-            # 准备数据行
             row = [timestamp.strftime("%Y-%m-%d %H:%M:%S")]
 
-            # 按固定顺序写入 KPI
             for key in self.kpi_keys:
                 val = flat_data.get(key, "")
                 row.append(val)
 
-            # 也可以选择不把 json 写入 csv 保持整洁，或者把所有列都展开
-            # 这里为了 Excel 易读，我们只存 KPI
-
             writer.writerow(row)
 
-    # --- 查询接口保持不变 ---
     def get_current_data(self, key: Optional[str] = None) -> Any:
         with self._cache_lock:
             if key:
