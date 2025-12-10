@@ -9,6 +9,8 @@ from .components.status_bar import StatusBar
 from src.services.logging_service import get_logging_service, LogLevel, LogCategory
 from src.services.video_service import get_video_service
 from src.services.opc_service import get_opc_service
+from src.services.data_service import get_data_service
+
 
 class FoamMonitoringSystem(QMainWindow):
     """铅浮选监测系统主窗口"""
@@ -171,6 +173,9 @@ class FoamMonitoringSystem(QMainWindow):
 
             # 清理OPC服务
             get_opc_service().cleanup()
+
+            # [新增] 停止数据服务 (确保缓存写入磁盘)
+            get_data_service().stop()
 
             event.accept()  # 接受关闭事件，窗口将关闭
         else:
