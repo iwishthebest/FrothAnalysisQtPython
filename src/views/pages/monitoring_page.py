@@ -117,7 +117,7 @@ class MonitoringPage(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(20)
 
-        # 创建三个漂亮的卡片
+        # [关键] 创建三个漂亮的卡片，并保存为 self.card_xxx
         self.card_feed = StatCard("原矿铅品位 (Feed)", "%", "#3498db", "⛏️")
         self.card_conc = StatCard("高铅精矿品位 (Conc)", "%", "#e74c3c", "💎")
         self.card_rec = StatCard("铅回收率 (Recovery)", "%", "#2ecc71", "📈")
@@ -218,24 +218,18 @@ class MonitoringPage(QWidget):
                 return float(data[tag]['value'])
             return default
 
-        # 1. 获取基础数据
-        val_feed = get_val("KYFX.kyfx_yk_grade_Pb", 0.0)  # 原矿 (Feed)
-        val_tail = get_val("KYFX.kyfx_qw_grade_Pb", 0.0)  # 尾矿 (Tailings)
+        # 获取数据
+        val_feed = get_val("KYFX.kyfx_yk_grade_Pb", 0.0)
+        val_conc = get_val("KYFX.kyfx_gqxk_grade_Pb", 0.0)
+        val_tail = get_val("KYFX.kyfx_qw_grade_Pb", 0.0)
+        val_conc_total = get_val("KYFX.kyfx_zqxk_grade_Pb", 0.0)  # 总铅用于计算回收率
 
-        # 获取用于显示的精矿品位
-        val_conc_high = get_val("KYFX.kyfx_gqxk_grade_Pb", 0.0)  # 高铅 (显示用)
-
-        # [关键修改] 获取总铅精矿品位，用于计算回收率
-        val_conc_total = get_val("KYFX.kyfx_zqxk_grade_Pb", 0.0)  # 总铅 (计算用)
-
-        # 2. 计算回收率 (使用总铅精矿品位 val_conc_total)
-        # 公式: R = [c * (f - t)] / [f * (c - t)] * 100
+        # 计算回收率 (使用总铅)
         val_rec = 0.0
         try:
-            c = val_conc_total  # 使用总铅
+            c = val_conc_total
             f = val_feed
             t = val_tail
-
             if f > t and c > t and f > 0 and (c - t) != 0:
                 numerator = c * (f - t)
                 denominator = f * (c - t)
@@ -244,13 +238,10 @@ class MonitoringPage(QWidget):
         except Exception:
             val_rec = 0.0
 
-        # 3. 更新界面显示
-        timestamp = datetime.now().strftime("%H:%M:%S")
-
-        self.lbl_feed_grade.setText(f"{val_feed:.2f}")
-        # 这里您可以选择显示“高铅”还是“总铅”，通常操作员更关注高铅品位
-        self.lbl_conc_grade.setText(f"{val_conc_high:.2f}")
-        self.lbl_recovery.setText(f"{val_rec:.2f}")
+        # [核心修复] 使用 self.card_xxx 更新，而不是 self.lbl_xxx
+        self.card_feed.set_value(f"{val_feed:.2f}")
+        self.card_conc.set_value(f"{val_conc:.2f}")
+        self.card_rec.set_value(f"{val_rec:.2f}")
 
         # 图表和表格更新逻辑 (每10分钟)
         now = datetime.now()
@@ -262,7 +253,7 @@ class MonitoringPage(QWidget):
             self.feed_grade_data[-1] = val_feed
 
             self.conc_grade_data = np.roll(self.conc_grade_data, -1)
-            self.conc_grade_data[-1] = val_conc_high
+            self.conc_grade_data[-1] = val_conc
 
             self.feed_curve.setData(self.feed_grade_data)
             self.conc_curve.setData(self.conc_grade_data)
@@ -270,7 +261,7 @@ class MonitoringPage(QWidget):
             self.data_table.insertRow(0)
             self.data_table.setItem(0, 0, QTableWidgetItem(timestamp_str))
             self.data_table.setItem(0, 1, QTableWidgetItem(f"{val_feed:.2f}"))
-            self.data_table.setItem(0, 2, QTableWidgetItem(f"{val_conc_high:.2f}"))
+            self.data_table.setItem(0, 2, QTableWidgetItem(f"{val_conc:.2f}"))
             self.data_table.setItem(0, 3, QTableWidgetItem(f"{val_rec:.2f}"))
 
             if self.data_table.rowCount() > 50:
