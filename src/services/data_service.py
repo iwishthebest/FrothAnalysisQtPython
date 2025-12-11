@@ -11,7 +11,7 @@ from typing import Dict, List, Any, Optional
 from datetime import datetime
 from threading import Lock
 from pathlib import Path
-
+from config.config_system import config_manager
 try:
     from . import BaseService, ServiceError, ServiceStatus
 except ImportError:
@@ -100,7 +100,7 @@ class DataService(BaseService):
         接收并保存数据
         策略：
         1. YJ (快频) 标签：数值变化即保存 (基于缓存比对)
-        2. KYFX (慢频) 标签 / 定时：每10分钟强制保存一次 (不管值是否变)
+        2. KYFX (慢频) 标签 / 定时：每10分钟(默认)强制保存一次
         """
         try:
             timestamp = datetime.now()
@@ -110,30 +110,27 @@ class DataService(BaseService):
                 self._cache.update(data)
                 self._cache['last_updated'] = timestamp
 
-            # 策略1: 10分钟定时强制保存 (主要针对 KYFX)
-            # [修改] 使用独立的 last_periodic_save_time，不受快频保存影响
-            if (timestamp - self.last_periodic_save_time).total_seconds() >= 600:
+            # [修改] 获取配置的慢频间隔，用于定时保存
+            slow_interval = config_manager.get_network_config().slow_tag_interval
+
+            # 策略1: 定时强制保存 (主要针对 KYFX)
+            if (timestamp - self.last_periodic_save_time).total_seconds() >= slow_interval:
                 should_save = True
                 self.last_periodic_save_time = timestamp
-                # print("触发定时保存 (慢频/周期)")
 
             # 策略2: 药剂值 (YJ) 发生变化
-            # 无论是否触发定时保存，都要更新 yj_value_cache 以保持最新状态
             yj_changed = False
             for key, val_dict in data.items():
                 if key.startswith("YJ."):
                     val = val_dict.get('value')
-                    # 如果值变了 (与上次缓存的值不同)
                     if self.yj_value_cache.get(key) != val:
                         self.yj_value_cache[key] = val
                         yj_changed = True
 
             if yj_changed:
                 should_save = True
-                # print(f"触发变动保存 (快频)")
 
             if should_save:
-                # 提取扁平数据
                 flat_data = {}
                 for key, val in data.items():
                     if isinstance(val, dict) and 'value' in val:
