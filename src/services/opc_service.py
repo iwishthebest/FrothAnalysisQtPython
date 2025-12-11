@@ -130,38 +130,72 @@ class OPCWorker(QObject):
 
     def _fetch_process_data(self, tags: List[str]) -> Dict[str, Any]:
         """
-        [终极方案] 手动构造 URL 以支持带 # 的标签
+        [调试版] 获取数据并打印详细调试信息
         """
         if not tags: return {}
         try:
-            # 1. 拼接标签字符串
+            # 1. 拼接标签
             tag_string = ",".join(tags)
 
-            # 2. [关键] 手动编码特殊字符 # -> %23
-            # 我们不使用 params 字典，而是自己拼 URL，防止 requests 做二次编码 (%23 -> %2523)
+            # 2. 手动编码 # -> %23
             tag_string_encoded = tag_string.replace("#", "%23")
 
-            # 3. 构造完整 URL
-            sep = "&" if "?" in self.opc_url else "?"
-            full_url = f"{self.opc_url}{sep}tagNameList={tag_string_encoded}"
+            # 3. 构造请求，但不立即发送
+            # 注意：这里我们把参数直接放在 params 字典里，让 requests 处理 ? 和 &
+            # 但为了防止 requests 对 %23 进行二次编码，我们采用一种"偷梁换柱"的方法：
+            # 我们先构造一个不带参数的 Request，然后手动把参数拼接到 url 上
 
-            # 4. 发送请求 (不带 params)
-            response = self.session.get(url=full_url, timeout=self._timeout)
+            base_url = self.opc_url
+            sep = "&" if "?" in base_url else "?"
+            final_url = f"{base_url}{sep}tagNameList={tag_string_encoded}"
+
+            req = requests.Request('GET', final_url)
+            prepped = self.session.prepare_request(req)
+
+            # [调试 1] 打印最终发出的 URL
+            self.logger.info(f"👉 请求URL: {prepped.url}", LogCategory.OPC)
+
+            # 4. 发送请求
+            response = self.session.send(prepped, timeout=self._timeout)
+
+            # [调试 2] 打印服务器返回的原始文本
+            # 这一步非常关键，能直接看到服务器的报错信息
+            # self.logger.info(f"👈 服务器响应: {response.text[:200]}...", LogCategory.OPC)
 
             if response.status_code == 200:
-                data = response.json()
+                try:
+                    data = response.json()
+                except:
+                    self.logger.error(f"JSON解析失败: {response.text}", LogCategory.OPC)
+                    return {}
+
+                # 检查数据有效性
+                data_list = data.get("data", [])
+                if not data_list:
+                    # 如果返回 200 但 data 为空，说明标签名不对
+                    self.logger.warning(f"⚠️ 请求成功但无数据! 响应: {data}", LogCategory.OPC)
+                    return {}
+
                 values = {}
-                for item in data.get("data", []):
-                    tag_name = item['TagName'].strip()
+                for item in data_list:
+                    tag_name = item.get('TagName', '').strip()
                     try:
                         val = float(item['Value'])
                         values[tag_name] = {'value': val, 'timestamp': item['Time'], 'quality': 'Good'}
                     except:
-                        values[tag_name] = {'value': 0.0, 'timestamp': item['Time'], 'quality': 'Bad'}
+                        values[tag_name] = {'value': 0.0, 'timestamp': item.get('Time'), 'quality': 'Bad'}
+
+                self.logger.info(f"✅ 成功解析 {len(values)} 个标签", LogCategory.OPC)
                 return values
             else:
+                self.logger.warning(f"❌ 请求失败 Code={response.status_code} Body={response.text}", LogCategory.OPC)
                 return {}
-        except Exception:
+
+        except requests.exceptions.RequestException as e:
+            self.logger.error(f"网络异常: {e}", LogCategory.OPC)
+            return {}
+        except Exception as e:
+            self.logger.error(f"未知异常: {e}", LogCategory.OPC)
             return {}
 
 
