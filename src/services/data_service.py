@@ -18,11 +18,23 @@ try:
     from . import BaseService, ServiceError, ServiceStatus
 except ImportError:
     from PySide6.QtCore import QObject
+
+
     class BaseService(QObject):
         def __init__(self, name): super().__init__()
+
+
     class ServiceStatus:
-        STARTING="STARTING"; RUNNING="RUNNING"; STOPPING="STOPPING"; STOPPED="STOPPED"; ERROR="ERROR"
-    class ServiceError(Exception): pass
+        STARTING = "STARTING";
+        RUNNING = "RUNNING";
+        STOPPING = "STOPPING";
+        STOPPED = "STOPPED";
+        ERROR = "ERROR"
+
+
+    class ServiceError(Exception):
+        pass
+
 
 class DataService(BaseService):
     """数据管理服务 - 双模存储 (Database + CSV)"""
@@ -39,11 +51,13 @@ class DataService(BaseService):
         self._cache_lock = Lock()
 
         # [修改] 关键 KPI 定义 (用于 CSV 表头)
-        # 对应：原矿、高铅精矿、尾矿
+        # 对应：原矿、高铅精矿、低铅精矿、总铅精矿、尾矿
         self.kpi_keys = [
-            "KYFX.kyfx_yk_grade_Pb",    # 原矿
+            "KYFX.kyfx_yk_grade_Pb",  # 原矿
             "KYFX.kyfx_gqxk_grade_Pb",  # 高铅精矿
-            "KYFX.kyfx_qw_grade_Pb",    # 尾矿 (用于后续验证计算)
+            "KYFX.kyfx_dqxk_grade_Pb",  # [新增] 低铅精矿
+            "KYFX.kyfx_zqxk_grade_Pb",  # [新增] 总铅精矿 (用于计算)
+            "KYFX.kyfx_qw_grade_Pb",  # 尾矿
         ]
 
     def start(self) -> bool:
@@ -72,26 +86,51 @@ class DataService(BaseService):
         with sqlite3.connect(self.db_path) as conn:
             # 1. 过程数据表 (更新字段以匹配新指标)
             conn.execute('''
-                CREATE TABLE IF NOT EXISTS process_history (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    timestamp DATETIME NOT NULL,
-                    feed_grade REAL,    -- 原矿
-                    conc_grade REAL,    -- 精矿
-                    recovery REAL,      -- 回收率
-                    raw_data JSON
-                )
-            ''')
+                         CREATE TABLE IF NOT EXISTS process_history
+                         (
+                             id
+                             INTEGER
+                             PRIMARY
+                             KEY
+                             AUTOINCREMENT,
+                             timestamp
+                             DATETIME
+                             NOT
+                             NULL,
+                             feed_grade
+                             REAL, -- 原矿
+                             conc_grade
+                             REAL, -- 精矿
+                             recovery
+                             REAL, -- 回收率
+                             raw_data
+                             JSON
+                         )
+                         ''')
 
             # 2. 事件日志表
             conn.execute('''
-                CREATE TABLE IF NOT EXISTS event_log (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    timestamp DATETIME NOT NULL,
-                    event_type TEXT NOT NULL,
-                    message TEXT,
-                    severity TEXT
-                )
-            ''')
+                         CREATE TABLE IF NOT EXISTS event_log
+                         (
+                             id
+                             INTEGER
+                             PRIMARY
+                             KEY
+                             AUTOINCREMENT,
+                             timestamp
+                             DATETIME
+                             NOT
+                             NULL,
+                             event_type
+                             TEXT
+                             NOT
+                             NULL,
+                             message
+                             TEXT,
+                             severity
+                             TEXT
+                         )
+                         ''')
             conn.commit()
 
     def record_data(self, data: Dict[str, Any]) -> None:
@@ -125,25 +164,32 @@ class DataService(BaseService):
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.cursor()
 
-            # 提取数据
+            # 获取各品位值
             f_grade = flat_data.get("KYFX.kyfx_yk_grade_Pb", 0.0)
-            c_grade = flat_data.get("KYFX.kyfx_gqxk_grade_Pb", 0.0)
+            c_high = flat_data.get("KYFX.kyfx_gqxk_grade_Pb", 0.0)
+            c_total = flat_data.get("KYFX.kyfx_zqxk_grade_Pb", 0.0)  # [修改] 获取总铅
             t_grade = flat_data.get("KYFX.kyfx_qw_grade_Pb", 0.0)
 
-            # 计算回收率 (存入数据库方便查询)
+            # 计算回收率 (使用总铅 c_total)
             recovery = 0.0
             try:
-                if f_grade > 0 and (c_grade - t_grade) != 0:
-                    recovery = (c_grade * (f_grade - t_grade)) / (f_grade * (c_grade - t_grade)) * 100
+                c = c_total
+                f = f_grade
+                t = t_grade
+                if f > 0 and (c - t) != 0:
+                    recovery = (c * (f - t)) / (f * (c - t)) * 100
             except:
                 recovery = 0.0
 
+            # 存入数据库
+            # 注意：数据库中的 conc_grade 字段您可以决定存“高铅”还是“总铅”
+            # 建议存“高铅”，因为它是产品质量的核心指标，回收率则反映系统效率
             json_dump = json.dumps(flat_data)
 
             cursor.execute('''
-                INSERT INTO process_history (timestamp, feed_grade, conc_grade, recovery, raw_data)
-                VALUES (?, ?, ?, ?, ?)
-            ''', (timestamp, f_grade, c_grade, recovery, json_dump))
+                           INSERT INTO process_history (timestamp, feed_grade, conc_grade, recovery, raw_data)
+                           VALUES (?, ?, ?, ?, ?)
+                           ''', (timestamp, f_grade, c_high, recovery, json_dump))
             conn.commit()
 
     def _save_to_csv(self, timestamp, flat_data: Dict[str, Any]):
@@ -165,6 +211,7 @@ class DataService(BaseService):
             f_grade = 0.0
             c_grade = 0.0
             t_grade = 0.0
+            c_total = 0.0
 
             for key in self.kpi_keys:
                 val = flat_data.get(key, "")
@@ -173,13 +220,14 @@ class DataService(BaseService):
                 if key == "KYFX.kyfx_yk_grade_Pb": f_grade = val if isinstance(val, (int, float)) else 0
                 if key == "KYFX.kyfx_gqxk_grade_Pb": c_grade = val if isinstance(val, (int, float)) else 0
                 if key == "KYFX.kyfx_qw_grade_Pb": t_grade = val if isinstance(val, (int, float)) else 0
-
+                if key == "KYFX.kyfx_zqxk_grade_Pb": t_grade = val if isinstance(val, (int, float)) else 0
             # 写入计算出的回收率
             rec = 0.0
             try:
-                if f_grade > 0 and (c_grade - t_grade) != 0:
-                    rec = (c_grade * (f_grade - t_grade)) / (f_grade * (c_grade - t_grade)) * 100
-            except: pass
+                if f_grade > 0 and (c_total - t_grade) != 0:
+                    rec = (c_total * (f_grade - t_grade)) / (f_grade * (c_total - t_grade)) * 100
+            except:
+                pass
             row.append(f"{rec:.2f}")
 
             writer.writerow(row)
@@ -195,15 +243,18 @@ class DataService(BaseService):
             conn.row_factory = sqlite3.Row
             cursor = conn.cursor()
             cursor.execute('''
-                SELECT timestamp, feed_grade, conc_grade, recovery 
-                FROM process_history
-                WHERE timestamp BETWEEN ? AND ?
-                ORDER BY timestamp
-            ''', (start_time, end_time))
+                           SELECT timestamp, feed_grade, conc_grade, recovery
+                           FROM process_history
+                           WHERE timestamp BETWEEN ? AND ?
+                           ORDER BY timestamp
+                           ''', (start_time, end_time))
             return [dict(row) for row in cursor.fetchall()]
+
 
 # 单例模式
 _data_service_instance = None
+
+
 def get_data_service() -> DataService:
     global _data_service_instance
     if _data_service_instance is None:
