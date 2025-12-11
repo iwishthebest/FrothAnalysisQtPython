@@ -129,24 +129,18 @@ class OPCWorker(QObject):
             QThread.msleep(int(sleep_time * 1000))
 
     def _fetch_process_data(self, tags: List[str]) -> Dict[str, Any]:
-        """
-        [终极方案] 手动构造 URL 以支持带 # 的标签
-        """
-        if not tags: return {}
+        if not tags:
+            return {}
         try:
-            # 1. 拼接标签字符串
-            tag_string = ",".join(tags)
+            tag_param = ",".join(tags)
+            params = {"tagNameList": tag_param}
 
-            # 2. [关键] 手动编码特殊字符 # -> %23
-            # 我们不使用 params 字典，而是自己拼 URL，防止 requests 做二次编码 (%23 -> %2523)
-            tag_string_encoded = tag_string.replace("#", "%23")
-
-            # 3. 构造完整 URL
-            sep = "&" if "?" in self.opc_url else "?"
-            full_url = f"{self.opc_url}{sep}tagNameList={tag_string_encoded}"
-
-            # 4. 发送请求 (不带 params)
-            response = self.session.get(url=full_url, timeout=self._timeout)
+            # 使用 GET (双重转义已在 _load_tags 处理)
+            response = self.session.get(
+                url=self.opc_url,
+                params=params,
+                timeout=self._timeout
+            )
 
             if response.status_code == 200:
                 data = response.json()
@@ -160,8 +154,12 @@ class OPCWorker(QObject):
                         values[tag_name] = {'value': 0.0, 'timestamp': item['Time'], 'quality': 'Bad'}
                 return values
             else:
+                self.logger.warning(f"OPC请求返回状态码: {response.status_code}", LogCategory.OPC)
                 return {}
-        except Exception:
+        except requests.exceptions.RequestException:
+            return {}
+        except Exception as e:
+            self.logger.error(f"获取数据异常: {e}", LogCategory.OPC)
             return {}
 
 
