@@ -143,15 +143,29 @@ class OPCWorker(QObject):
             )
 
             if response.status_code == 200:
-                data = response.json()
+                try:
+                    data = response.json()
+                except:
+                    self.logger.error(f"JSON解析失败: {response.text}", LogCategory.OPC)
+                    return {}
+
+                # 检查数据有效性
+                data_list = data.get("data", [])
+                if not data_list:
+                    # 如果返回 200 但 data 为空，说明标签名不对
+                    self.logger.warning(f"⚠️ 请求成功但无数据! 响应: {data}", LogCategory.OPC)
+                    return {}
+
                 values = {}
-                for item in data.get("data", []):
-                    tag_name = item['TagName'].strip()
+                for item in data_list:
+                    tag_name = item.get('TagName', '').strip()
                     try:
                         val = float(item['Value'])
                         values[tag_name] = {'value': val, 'timestamp': item['Time'], 'quality': 'Good'}
                     except:
-                        values[tag_name] = {'value': 0.0, 'timestamp': item['Time'], 'quality': 'Bad'}
+                        values[tag_name] = {'value': 0.0, 'timestamp': item.get('Time'), 'quality': 'Bad'}
+
+                self.logger.info(f"✅ 成功解析 {len(values)} 个标签", LogCategory.OPC)
                 return values
             else:
                 self.logger.warning(f"OPC请求返回状态码: {response.status_code}", LogCategory.OPC)
