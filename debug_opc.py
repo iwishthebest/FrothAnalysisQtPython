@@ -59,7 +59,7 @@ class OPCDebugger:
                 break
 
         # 获取原本请求的所有标签
-        requested_tags = set(self.worker._tag_cache)
+        requested_tags = set(self.worker._fast_tags + self.worker._slow_tags)
         received_tags = set(data.keys())
 
         missing_tags = requested_tags - received_tags
