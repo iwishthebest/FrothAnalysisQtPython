@@ -1,6 +1,5 @@
 """
-数据服务 (DataService)
-功能：全量标签存储、智能分频记录
+src/services/data_service.py
 """
 import time
 import sqlite3
@@ -40,7 +39,8 @@ class DataService(BaseService):
         self.all_csv_headers = self._load_all_headers()
 
         # 状态记录
-        self.last_save_time = datetime.min
+        # [修改] 使用独立的周期性保存计时器，避免被快频保存重置
+        self.last_periodic_save_time = datetime.min
         self.yj_value_cache = {} # 用于比对药剂值是否变化
 
     def start(self) -> bool:
@@ -98,7 +98,9 @@ class DataService(BaseService):
     def record_data(self, data: Dict[str, Any]) -> None:
         """
         接收并保存数据
-        策略：KYFX每10分钟存一次，YJ数值变化立刻存
+        策略：
+        1. YJ (快频) 标签：数值变化即保存 (基于缓存比对)
+        2. KYFX (慢频) 标签 / 定时：每10分钟强制保存一次 (不管值是否变)
         """
         try:
             timestamp = datetime.now()
@@ -108,26 +110,29 @@ class DataService(BaseService):
                 self._cache.update(data)
                 self._cache['last_updated'] = timestamp
 
-            # 策略1: 时间间隔 > 10分钟 (主要针对 KYFX)
-            if (timestamp - self.last_save_time).total_seconds() >= 600:
+            # 策略1: 10分钟定时强制保存 (主要针对 KYFX)
+            # [修改] 使用独立的 last_periodic_save_time，不受快频保存影响
+            if (timestamp - self.last_periodic_save_time).total_seconds() >= 600:
                 should_save = True
-                # print("触发定时保存")
+                self.last_periodic_save_time = timestamp
+                # print("触发定时保存 (慢频/周期)")
 
             # 策略2: 药剂值 (YJ) 发生变化
-            if not should_save:
-                for key, val_dict in data.items():
-                    if key.startswith("YJ."):
-                        val = val_dict.get('value')
-                        # 如果值变了，或者这是第一次收到这个值
-                        if self.yj_value_cache.get(key) != val:
-                            self.yj_value_cache[key] = val
-                            should_save = True
-                            # print(f"触发变动保存: {key}")
-                            break # 只要有一个变了就存
+            # 无论是否触发定时保存，都要更新 yj_value_cache 以保持最新状态
+            yj_changed = False
+            for key, val_dict in data.items():
+                if key.startswith("YJ."):
+                    val = val_dict.get('value')
+                    # 如果值变了 (与上次缓存的值不同)
+                    if self.yj_value_cache.get(key) != val:
+                        self.yj_value_cache[key] = val
+                        yj_changed = True
+
+            if yj_changed:
+                should_save = True
+                # print(f"触发变动保存 (快频)")
 
             if should_save:
-                self.last_save_time = timestamp
-
                 # 提取扁平数据
                 flat_data = {}
                 for key, val in data.items():
