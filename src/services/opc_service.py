@@ -3,7 +3,7 @@ import re
 import requests
 import time
 from typing import Dict, List, Optional, Any
-from PySide6.QtCore import QObject, QThread, Signal
+from PySide6.QtCore import QObject, QThread, Signal, QMutex
 
 from src.services.logging_service import get_logging_service
 from src.common.constants import LogCategory
@@ -25,13 +25,16 @@ class OPCWorker(QObject):
         self.logger = get_logging_service()
         self.running = False
 
+        # 标签分组
         self._fast_tags: List[str] = []  # YJ
         self._slow_tags: List[str] = []  # KYFX
-        self._data_cache: Dict[str, Any] = {}  # 全量缓存
+
+        # 本地全量数据缓存 (防止分频采集导致发出的数据不全)
+        self._data_cache: Dict[str, Any] = {}
 
         self._timeout = 10
-        self._poll_interval = 1.0  # 快频间隔
-        self._slow_interval = 600.0  # 慢频间隔 (10分钟)
+        self._poll_interval = 1.0  # 快频间隔 1s
+        self._slow_interval = 600.0  # 慢频间隔 10分钟
         self._last_slow_update = 0.0
 
         self.session = requests.Session()
@@ -50,31 +53,27 @@ class OPCWorker(QObject):
             pass
 
     def _load_tags(self):
-        """加载并分类标签 (修复脏数据和#号问题)"""
+        """加载并分类标签"""
         self._fast_tags = []
         self._slow_tags = []
         try:
             with open(self.tag_list_file, 'r', encoding='utf-8') as file:
                 reader = csv.reader(file)
                 for row in reader:
-                    if not row: continue
+                    if row:
+                        cleaned_line = re.sub(r'[\[\]]', '', row[0])
+                        # 双重转义修复 # 号问题
+                        if '#' in cleaned_line:
+                            cleaned_line = cleaned_line.replace('#', '%23')
 
-                    raw_str = row[0]
-                    # 1. 清洗 等杂质
-                    if "source:" in raw_str:
-                        raw_str = raw_str.split(']')[-1]  # 取最后一个]后面的内容
+                        tag_name = self._add_prefix(cleaned_line.strip())
 
-                    # 2. 移除方括号
-                    cleaned_line = re.sub(r'[\[\]]', '', raw_str).strip()
-
-                    # 3. 添加前缀 (YJ./KYFX.)
-                    tag_name = self._add_prefix(cleaned_line)
-
-                    # 4. 存入原始名称 (不要在这里替换#，保持原样!)
-                    if tag_name.startswith("KYFX."):
-                        self._slow_tags.append(tag_name)
-                    else:
-                        self._fast_tags.append(tag_name)
+                        # === 分类逻辑 ===
+                        if tag_name.startswith("KYFX."):
+                            self._slow_tags.append(tag_name)
+                        else:
+                            # YJ 或其他默认为快频
+                            self._fast_tags.append(tag_name)
 
             self.logger.info(f"标签加载完成: 快频(YJ) {len(self._fast_tags)}个, 慢频(KYFX) {len(self._slow_tags)}个",
                              LogCategory.OPC)
@@ -92,14 +91,15 @@ class OPCWorker(QObject):
     def _capture_loop(self):
         while self.running:
             loop_start = time.time()
+
             try:
                 current_time = time.time()
                 tags_to_fetch = []
 
-                # 1. 始终包含快频标签 (YJ)
+                # 1. 始终添加快频标签
                 tags_to_fetch.extend(self._fast_tags)
 
-                # 2. 定时包含慢频标签 (KYFX - 10分钟一次)
+                # 2. 检查是否需要更新慢频标签 (10分钟一次)
                 is_slow_update = False
                 if (current_time - self._last_slow_update) >= self._slow_interval:
                     tags_to_fetch.extend(self._slow_tags)
@@ -111,18 +111,24 @@ class OPCWorker(QObject):
                 new_data = self._fetch_process_data(tags_to_fetch)
 
                 if new_data:
+                    # 更新本地缓存
                     self._data_cache.update(new_data)
-                    # 发送全量数据给界面和存储服务
+
+                    # 发送全量缓存数据 (保证UI始终有所有数据)
                     self.data_updated.emit(self._data_cache.copy())
 
-                    msg = "OPC在线" + (" (全量)" if is_slow_update else "")
+                    msg = "OPC在线"
+                    if is_slow_update:
+                        msg += " (全量刷新)"
                     self.status_changed.emit(True, msg)
-                elif not self._data_cache:
-                    self.status_changed.emit(False, "数据为空")
+                else:
+                    # 如果采集失败且缓存为空，才报空
+                    if not self._data_cache:
+                        self.status_changed.emit(False, "数据为空")
 
             except Exception as e:
-                self.logger.error(f"OPC 采集异常: {e}", LogCategory.OPC)
-                self.status_changed.emit(False, "采集错误")
+                self.logger.error(f"OPC 采集循环异常: {e}", LogCategory.OPC)
+                self.status_changed.emit(False, f"错误: {str(e)[:20]}")
 
             elapsed = time.time() - loop_start
             sleep_time = max(0.1, self._poll_interval - elapsed)
@@ -143,29 +149,15 @@ class OPCWorker(QObject):
             )
 
             if response.status_code == 200:
-                try:
-                    data = response.json()
-                except:
-                    self.logger.error(f"JSON解析失败: {response.text}", LogCategory.OPC)
-                    return {}
-
-                # 检查数据有效性
-                data_list = data.get("data", [])
-                if not data_list:
-                    # 如果返回 200 但 data 为空，说明标签名不对
-                    self.logger.warning(f"⚠️ 请求成功但无数据! 响应: {data}", LogCategory.OPC)
-                    return {}
-
+                data = response.json()
                 values = {}
-                for item in data_list:
-                    tag_name = item.get('TagName', '').strip()
+                for item in data.get("data", []):
+                    tag_name = item['TagName'].strip()
                     try:
                         val = float(item['Value'])
                         values[tag_name] = {'value': val, 'timestamp': item['Time'], 'quality': 'Good'}
                     except:
-                        values[tag_name] = {'value': 0.0, 'timestamp': item.get('Time'), 'quality': 'Bad'}
-
-                self.logger.info(f"✅ 成功解析 {len(values)} 个标签", LogCategory.OPC)
+                        values[tag_name] = {'value': 0.0, 'timestamp': item['Time'], 'quality': 'Bad'}
                 return values
             else:
                 self.logger.warning(f"OPC请求返回状态码: {response.status_code}", LogCategory.OPC)
