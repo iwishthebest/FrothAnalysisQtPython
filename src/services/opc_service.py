@@ -138,13 +138,27 @@ class OPCWorker(QObject):
         if not tags:
             return {}
         try:
-            tag_param = ",".join(tags)
-            params = {"tagNameList": tag_param}
+            # 1. 手动拼接参数字符串
+            # 我们在这里手动将 # 替换为 %23，这是标准的 URL 编码
+            # requests 库如果不使用 params 参数，通常不会对已存在的 URL 字符串进行二次转义
+            tag_string = ",".join(tags)
 
-            # 使用 GET (双重转义已在 _load_tags 处理)
+            # [核心技巧] 手动编码特殊字符
+            # 将 # 替换为 %23。注意：不要替换 : (冒号)，因为OPC服务器似乎需要冒号
+            tag_string_encoded = tag_string.replace("#", "%23")
+
+            # 2. 构造完整 URL
+            # 假设 self.opc_url 结尾没有 ?，如果有则需要判断
+            delimiter = "&" if "?" in self.opc_url else "?"
+            full_url = f"{self.opc_url}{delimiter}tagNameList={tag_string_encoded}"
+
+            # [调试] 打印即将发送的绝对 URL，请与 Postman Console 中的 URL 对比
+            # if "%23" in full_url:
+            #     self.logger.info(f"发送URL: {full_url}", LogCategory.OPC)
+
+            # 3. 发送请求 (不使用 params 参数)
             response = self.session.get(
-                url=self.opc_url,
-                params=params,
+                url=full_url,
                 timeout=self._timeout
             )
 
@@ -152,6 +166,7 @@ class OPCWorker(QObject):
                 data = response.json()
                 values = {}
                 for item in data.get("data", []):
+                    # 获取原始标签名 (去除前后空格)
                     tag_name = item['TagName'].strip()
                     try:
                         val = float(item['Value'])
@@ -162,6 +177,7 @@ class OPCWorker(QObject):
             else:
                 self.logger.warning(f"OPC请求返回状态码: {response.status_code}", LogCategory.OPC)
                 return {}
+
         except requests.exceptions.RequestException:
             return {}
         except Exception as e:
