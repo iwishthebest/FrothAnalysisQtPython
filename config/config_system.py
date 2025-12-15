@@ -429,12 +429,20 @@ class NetworkConfig:
     api_endpoint: str = "http://localhost:8000/api"
     timeout: int = 30
     retry_count: int = 3
+    # [新增] 快慢频更新间隔配置
+    fast_tag_interval: float = 5.0   # 快频标签更新间隔 (秒)
+    slow_tag_interval: float = 600.0 # 慢频标签更新间隔 (秒)
 
     def validate(self) -> bool:
         """验证配置有效性"""
         if self.timeout <= 0:
             return False
         if self.retry_count < 0:
+            return False
+        # [新增] 验证间隔
+        if self.fast_tag_interval <= 0:
+            return False
+        if self.slow_tag_interval <= 0:
             return False
         return True
 
@@ -445,7 +453,10 @@ class NetworkConfig:
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'NetworkConfig':
         """从字典创建实例"""
-        return cls(**data)
+        # 过滤掉不在 dataclass 中的多余字段，防止报错 (可选优化)
+        valid_keys = cls.__annotations__.keys()
+        filtered_data = {k: v for k, v in data.items() if k in valid_keys}
+        return cls(**filtered_data)
 
 
 @dataclass

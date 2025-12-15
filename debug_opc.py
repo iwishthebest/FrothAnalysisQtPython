@@ -58,6 +58,16 @@ class OPCDebugger:
                 print("  ... (更多数据已省略)")
                 break
 
+        # 获取原本请求的所有标签
+        requested_tags = set(self.worker._fast_tags + self.worker._slow_tags)
+        received_tags = set(data.keys())
+
+        missing_tags = requested_tags - received_tags
+        if missing_tags:
+            print(f"⚠️ 警告：以下 {len(missing_tags)} 个标签未返回数据：")
+            for tag in missing_tags:
+                print(f"  - {tag}")
+
     @Slot(bool, str)
     def on_status_changed(self, connected, message):
         """状态变更时的回调"""
