@@ -164,7 +164,11 @@ class OPCWorker(QObject):
                     tag_name = item['TagName'].strip()
                     try:
                         val = float(item['Value'])
-                        values[tag_name] = {'value': val, 'timestamp': item['Time'], 'quality': 'Good'}
+                        # [新增] 检查无效值 -9999
+                        if val == -9999.0:
+                            values[tag_name] = {'value': val, 'timestamp': item['Time'], 'quality': 'Bad'}
+                        else:
+                            values[tag_name] = {'value': val, 'timestamp': item['Time'], 'quality': 'Good'}
                     except:
                         values[tag_name] = {'value': 0.0, 'timestamp': item['Time'], 'quality': 'Bad'}
                 return values

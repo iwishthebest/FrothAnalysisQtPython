@@ -213,56 +213,68 @@ class MonitoringPage(QWidget):
     def handle_data_updated(self, data: dict):
         """处理 OPC 数据更新信号"""
 
-        def get_val(tag, default=0.0):
+        # [修改] 增加无效值过滤逻辑
+        def get_val(tag):
             if tag in data and data[tag].get('value') is not None:
-                return float(data[tag]['value'])
-            return default
+                val = float(data[tag]['value'])
+                # 如果是无效值，返回 None
+                if val == -9999.0:
+                    return None
+                return val
+            return None
 
-        # 获取数据
-        val_feed = get_val("KYFX.kyfx_yk_grade_Pb", 0.0)
-        val_conc = get_val("KYFX.kyfx_gqxk_grade_Pb", 0.0)
-        val_tail = get_val("KYFX.kyfx_qw_grade_Pb", 0.0)
-        val_conc_total = get_val("KYFX.kyfx_zqxk_grade_Pb", 0.0)  # 总铅用于计算回收率
+        # 获取数据 (可能为 None)
+        val_feed = get_val("KYFX.kyfx_yk_grade_Pb")
+        val_conc = get_val("KYFX.kyfx_gqxk_grade_Pb")
+        val_tail = get_val("KYFX.kyfx_qw_grade_Pb")
+        val_conc_total = get_val("KYFX.kyfx_zqxk_grade_Pb")
 
-        # 计算回收率 (使用总铅)
-        val_rec = 0.0
+        # 计算回收率 (必须所有参与计算的值都有效)
+        val_rec = None
         try:
-            c = val_conc_total
-            f = val_feed
-            t = val_tail
-            if f > t and c > t and f > 0 and (c - t) != 0:
-                numerator = c * (f - t)
-                denominator = f * (c - t)
-                val_rec = (numerator / denominator) * 100
-                val_rec = max(0.0, min(100.0, val_rec))
+            # 只有当所有相关数据都有效(不为None)时才计算
+            if val_feed is not None and val_tail is not None and val_conc_total is not None:
+                c = val_conc_total
+                f = val_feed
+                t = val_tail
+                if f > t and c > t and f > 0 and (c - t) != 0:
+                    numerator = c * (f - t)
+                    denominator = f * (c - t)
+                    res = (numerator / denominator) * 100
+                    val_rec = max(0.0, min(100.0, res))
         except Exception:
-            val_rec = 0.0
+            val_rec = None
 
-        # [核心修复] 使用 self.card_xxx 更新，而不是 self.lbl_xxx
-        self.card_feed.set_value(f"{val_feed:.2f}")
-        self.card_conc.set_value(f"{val_conc:.2f}")
-        self.card_rec.set_value(f"{val_rec:.2f}")
+        # [修改] 更新卡片显示：如果是 None 则显示 "--"
+        self.card_feed.set_value(f"{val_feed:.2f}" if val_feed is not None else "--")
+        self.card_conc.set_value(f"{val_conc:.2f}" if val_conc is not None else "--")
+        self.card_rec.set_value(f"{val_rec:.2f}" if val_rec is not None else "--")
 
-        # 图表和表格更新逻辑 (每10分钟)
+        # 图表和表格更新逻辑
         now = datetime.now()
         if (now - self.last_chart_update).total_seconds() >= self.chart_update_interval:
             self.last_chart_update = now
             timestamp_str = now.strftime("%H:%M:%S")
 
+            # 图表数据填充：如果无效，暂时填0 (或者取上一个有效值，这里用0表示断点)
+            plot_feed = val_feed if val_feed is not None else 0.0
+            plot_conc = val_conc if val_conc is not None else 0.0
+
             self.feed_grade_data = np.roll(self.feed_grade_data, -1)
-            self.feed_grade_data[-1] = val_feed
+            self.feed_grade_data[-1] = plot_feed
 
             self.conc_grade_data = np.roll(self.conc_grade_data, -1)
-            self.conc_grade_data[-1] = val_conc
+            self.conc_grade_data[-1] = plot_conc
 
             self.feed_curve.setData(self.feed_grade_data)
             self.conc_curve.setData(self.conc_grade_data)
 
+            # 表格数据填充
             self.data_table.insertRow(0)
             self.data_table.setItem(0, 0, QTableWidgetItem(timestamp_str))
-            self.data_table.setItem(0, 1, QTableWidgetItem(f"{val_feed:.2f}"))
-            self.data_table.setItem(0, 2, QTableWidgetItem(f"{val_conc:.2f}"))
-            self.data_table.setItem(0, 3, QTableWidgetItem(f"{val_rec:.2f}"))
+            self.data_table.setItem(0, 1, QTableWidgetItem(f"{val_feed:.2f}" if val_feed is not None else "--"))
+            self.data_table.setItem(0, 2, QTableWidgetItem(f"{val_conc:.2f}" if val_conc is not None else "--"))
+            self.data_table.setItem(0, 3, QTableWidgetItem(f"{val_rec:.2f}" if val_rec is not None else "--"))
 
             if self.data_table.rowCount() > 50:
                 self.data_table.removeRow(50)
