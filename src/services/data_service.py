@@ -243,8 +243,9 @@ class DataService(BaseService):
         with sqlite3.connect(self.db_path) as conn:
             conn.row_factory = sqlite3.Row
             cursor = conn.cursor()
+            # [修改] 查询语句增加了 raw_data 字段
             cursor.execute('''
-                           SELECT timestamp, feed_grade, conc_grade, recovery
+                           SELECT timestamp, feed_grade, conc_grade, recovery, raw_data
                            FROM process_history
                            WHERE timestamp BETWEEN ? AND ?
                            ORDER BY timestamp

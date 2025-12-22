@@ -1,4 +1,5 @@
 import numpy as np
+import json
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QGroupBox,
                                QLabel, QTableWidget, QTableWidgetItem,
                                QPushButton, QDateEdit, QComboBox, QHeaderView, QMessageBox)
@@ -97,32 +98,26 @@ class HistoryPage(QWidget):
 
         # 创建表格
         self.history_table = QTableWidget()
-        self.history_table.setColumnCount(8)
+        # [修改] 增加列数以容纳更多药剂
+        self.history_table.setColumnCount(13)
+        # [修改] 细分加药量为具体药剂
         self.history_table.setHorizontalHeaderLabels([
-            "时间", "铅品位(%)", "锌品位(%)", "回收率(%)",
-            "液位(m)", "加药量(ml/min)", "泡沫厚度(cm)", "状态"
+            "时间",
+            "铅品位(%)", "锌品位(%)", "回收率(%)",
+            "硫酸铜\n(ml/min)", "丁黄药\n(ml/min)", "乙硫氮\n(ml/min)",
+            "2#油\n(ml/min)", "石灰\n(ml/min)", "DS\n(ml/min)",
+            "液位(m)", "泡沫厚度(cm)", "状态"
         ])
 
         # 设置表格属性
         self.history_table.setAlternatingRowColors(True)
         self.history_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
 
-        # [修改] 优化列宽设置
         header = self.history_table.horizontalHeader()
-
-        # 1. 设置所有列为"ResizeToContents"模式
-        # 这样列宽会根据内容自动撑开，如果总宽度超过窗口，会自动出现横向滚动条
         header.setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
+        header.setMinimumSectionSize(80)
 
-        # 2. 设置最小列宽，防止表头文字显示太挤
-        header.setMinimumSectionSize(100)
-
-        # 3. (可选) 如果希望最后一列填充剩余空白（如果有的话），可以取消注释下面这行
-        # header.setStretchLastSection(True)
-
-        # 确保滚动条策略是自动（默认就是自动，显式设置一下更保险）
         self.history_table.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
-
         self.history_table.setSortingEnabled(True)
         self.history_table.setMinimumHeight(400)
 
@@ -187,76 +182,52 @@ class HistoryPage(QWidget):
 
         self.history_table.setRowCount(len(self.history_data))
 
-        # 倒序显示，最新的在最上面
+        # 倒序显示
         sorted_data = self.history_data.sort_values(by='timestamp', ascending=False)
 
         for row, (_, record) in enumerate(sorted_data.iterrows()):
-            # 时间
+            # 0. 时间
             ts = record['timestamp']
-            # [修改] 优化时间格式化逻辑，去掉微秒
-            time_str = ""
-            if isinstance(ts, datetime):
-                time_str = ts.strftime("%H:%M:%S")
-            elif isinstance(ts, str):
-                try:
-                    # 尝试解析带微秒的格式
-                    dt = datetime.strptime(ts, "%Y-%m-%d %H:%M:%S.%f")
-                    time_str = dt.strftime("%H:%M:%S")
-                except ValueError:
-                    try:
-                        # 尝试解析不带微秒的格式
-                        dt = datetime.strptime(ts, "%Y-%m-%d %H:%M:%S")
-                        time_str = dt.strftime("%H:%M:%S")
-                    except:
-                        # 最后的兜底：分割字符串取时间部分，并去掉小数点后的内容
-                        parts = ts.split(' ')
-                        if len(parts) > 1:
-                            time_part = parts[-1]
-                            time_str = time_part.split('.')[0]
-                        else:
-                            time_str = ts.split('.')[0]
+            time_str = ts.strftime("%H:%M:%S") if isinstance(ts, datetime) else str(ts)
+            self.history_table.setItem(row, 0, QTableWidgetItem(time_str))
 
-            time_item = QTableWidgetItem(time_str)
-            self.history_table.setItem(row, 0, time_item)
-
-            # 铅品位
+            # 1. 铅品位
             lead_val = record.get('lead_grade', 0.0)
             lead_item = QTableWidgetItem(f"{lead_val:.2f}")
             self.set_grade_color(lead_item, lead_val, 50)
             self.history_table.setItem(row, 1, lead_item)
 
-            # 锌品位
+            # 2. 锌品位
             zinc_val = record.get('zinc_grade', 0.0)
-            zinc_item = QTableWidgetItem(f"{zinc_val:.2f}" if zinc_val > 0 else "--")
-            self.history_table.setItem(row, 2, zinc_item)
+            self.history_table.setItem(row, 2, QTableWidgetItem(f"{zinc_val:.2f}" if zinc_val > 0 else "--"))
 
-            # 回收率
+            # 3. 回收率
             rec_val = record.get('recovery_rate', 0.0)
             recovery_item = QTableWidgetItem(f"{rec_val:.2f}")
             self.set_grade_color(recovery_item, rec_val, 85)
             self.history_table.setItem(row, 3, recovery_item)
 
-            # 液位
+            # [新增] 4-9. 各种药剂流量
+            reagents = ['liushuantong', 'dinghuangyao', 'yiliudan', '2_oil', 'shihui', 'ds']
+            for i, r_key in enumerate(reagents):
+                val = record.get(r_key, 0.0)
+                # 使用 col = 4 + i
+                self.history_table.setItem(row, 4 + i, QTableWidgetItem(f"{val:.1f}"))
+
+            # 10. 液位
             level_val = record.get('water_level', 0.0)
-            level_item = QTableWidgetItem(f"{level_val:.2f}" if level_val > 0 else "--")
-            self.history_table.setItem(row, 4, level_item)
+            self.history_table.setItem(row, 10, QTableWidgetItem(f"{level_val:.2f}" if level_val > 0 else "--"))
 
-            # 加药量
-            dosing_val = record.get('dosing_rate', 0.0)
-            dosing_item = QTableWidgetItem(f"{dosing_val:.1f}" if dosing_val > 0 else "--")
-            self.history_table.setItem(row, 5, dosing_item)
-
-            # 泡沫厚度
+            # 11. 泡沫厚度
             foam_val = record.get('foam_thickness', 0.0)
-            foam_item = QTableWidgetItem(f"{foam_val:.1f}" if foam_val > 0 else "--")
-            self.history_table.setItem(row, 6, foam_item)
+            self.history_table.setItem(row, 11, QTableWidgetItem(f"{foam_val:.1f}" if foam_val > 0 else "--"))
 
-            # 状态
+            # 12. 状态
             status_str = record.get('status', '正常')
             status_item = QTableWidgetItem(status_str)
             if status_str == '异常':
                 status_item.setBackground(QColor(255, 200, 200))
-            self.history_table.setItem(row, 7, status_item)
+            self.history_table.setItem(row, 12, status_item)
 
     def set_grade_color(self, item, value, target):
         """设置品位数值的颜色"""
@@ -268,27 +239,22 @@ class HistoryPage(QWidget):
             item.setBackground(QColor(255, 200, 200))  # 较差 - 浅红
 
     def on_query_clicked(self):
-        """查询按钮点击事件 - 连接真实数据库"""
+        """查询按钮点击事件 - 连接真实数据库并解析药剂数据"""
         try:
-            # 获取日期范围
             start_qdate = self.start_date_edit.date()
             end_qdate = self.end_date_edit.date()
-
-            # 转换为 datetime 对象 (start 设为 00:00:00, end 设为 23:59:59)
             start_dt = datetime.combine(start_qdate.toPython(), time.min)
             end_dt = datetime.combine(end_qdate.toPython(), time.max)
 
-            # 从数据服务获取数据
             results = self.data_service.get_historical_data(start_dt, end_dt)
 
-            # 将结果转换为 DataFrame 格式以适配原有逻辑
             if not results:
                 self.history_data = pd.DataFrame()
                 QMessageBox.information(self, "提示", "该时间段内无数据记录")
             else:
                 data_list = []
                 for row in results:
-                    # 处理时间戳格式
+                    # 解析时间
                     ts = row['timestamp']
                     if isinstance(ts, str):
                         try:
@@ -299,17 +265,47 @@ class HistoryPage(QWidget):
                             except:
                                 pass
 
-                    data_list.append({
+                    # [新增] 解析 raw_data 以获取药剂流量
+                    reagent_flows = {
+                        'liushuantong': 0.0, 'dinghuangyao': 0.0, 'yiliudan': 0.0,
+                        '2_oil': 0.0, 'shihui': 0.0, 'ds': 0.0
+                    }
+
+                    raw_json = row.get('raw_data')
+                    if raw_json:
+                        try:
+                            raw_data = json.loads(raw_json)
+                            # 遍历所有标签数据进行分类汇总
+                            for tag, val in raw_data.items():
+                                # 确保只统计实际流量 (actualflow) 且值有效
+                                if 'actualflow' in tag and isinstance(val, (int, float)):
+                                    if 'liushuantong' in tag:
+                                        reagent_flows['liushuantong'] += val
+                                    elif 'dinghuangyao' in tag:
+                                        reagent_flows['dinghuangyao'] += val
+                                    elif 'yiliudan' in tag:
+                                        reagent_flows['yiliudan'] += val
+                                    elif '2#you' in tag or '5#you' in tag:  # 兼容 tagList 中的命名
+                                        reagent_flows['2_oil'] += val
+                                    elif 'shihui' in tag:
+                                        reagent_flows['shihui'] += val
+                                    elif 'ds' in tag.lower():  # 匹配 ds1, ds2 等
+                                        reagent_flows['ds'] += val
+                        except Exception as e:
+                            print(f"解析 raw_data 失败: {e}")
+
+                    item_data = {
                         'timestamp': ts,
-                        # 映射数据库字段到界面字段
                         'lead_grade': row['conc_grade'] if row['conc_grade'] is not None else 0.0,
                         'zinc_grade': 0.0,
                         'recovery_rate': row['recovery'] if row['recovery'] is not None else 0.0,
-                        'water_level': 0.0,
-                        'dosing_rate': 0.0,
+                        'water_level': 0.0,  # 如果 raw_data 中有液位tag也可在此解析
                         'foam_thickness': 0.0,
                         'status': '正常'
-                    })
+                    }
+                    # 合并药剂数据
+                    item_data.update(reagent_flows)
+                    data_list.append(item_data)
 
                 self.history_data = pd.DataFrame(data_list)
 
@@ -318,6 +314,8 @@ class HistoryPage(QWidget):
 
         except Exception as e:
             print(f"查询数据时出错: {e}")
+            import traceback
+            traceback.print_exc()
             QMessageBox.warning(self, "查询错误", f"获取历史数据失败: {str(e)}")
 
     def on_export_clicked(self):
