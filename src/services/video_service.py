@@ -1,7 +1,6 @@
 import cv2
 import numpy as np
 import time
-import threading  # [新增] 用于异步释放资源
 from typing import Optional, List, Dict, Any
 from PySide6.QtCore import QObject, QThread, Signal, Qt, QMutex
 from PySide6.QtGui import QImage
@@ -34,19 +33,14 @@ class CameraWorker(QObject):
 
     def start_work(self):
         """线程启动入口"""
-        if self.running:
-            return
-
+        if self.running: return
         self.running = True
         self.force_exit = False
         self.logger = get_logging_service()
 
         self._emit_status("starting", "正在启动...")
-
         self._initialize_connection()
         self._capture_loop()
-
-        # 循环结束后的状态在 _capture_loop 中处理
 
     def stop_work(self, force_exit=False):
         """停止工作"""
@@ -55,14 +49,12 @@ class CameraWorker(QObject):
 
     def set_simulation_mode(self, enabled: bool):
         self.simulation_mode = enabled
-        # 模拟模式切换也建议异步处理防止卡顿，但通常模拟模式关闭很快
         if enabled and self.reader:
-            self._async_release_reader(self.reader)
+            self.reader.stop()
             self.reader = None
 
     def _initialize_connection(self):
-        if self.force_exit:
-            return
+        if self.force_exit: return
 
         if not self.simulation_mode:
             try:
@@ -88,9 +80,7 @@ class CameraWorker(QObject):
     def _capture_loop(self):
         """主捕获循环"""
         while self.running:
-            if self.force_exit:
-                break
-
+            if self.force_exit: break
             loop_start = time.time()
             frame = None
 
@@ -114,36 +104,14 @@ class CameraWorker(QObject):
             self._smart_sleep(sleep_time)
 
         # === 循环结束后的清理 ===
+        if not self.force_exit:
+            if self.reader:
+                # [修改] 现在 reader.stop() 是非阻塞的，可以直接调用
+                self.reader.stop()
+                self.reader = None
 
-        # 1. 如果是程序强制退出，什么都不做，直接返回
-        if self.force_exit:
-            return
-
-        # 2. 如果是手动停止，执行异步清理
-        if self.reader:
-            self._async_release_reader(self.reader)
-            self.reader = None
-
-        # 3. 立即通知 UI 已停止
-        self._emit_status("stopped", "已断开")
-
-    def _async_release_reader(self, reader_instance):
-        """
-        [核心修复] 异步释放 RTSP 资源
-        创建一个临时的后台线程去执行 reader.stop()，避免阻塞当前 Worker 线程。
-        这样 UI 可以立即收到 "已断开" 信号，而不用等待底层 socket 关闭。
-        """
-
-        def cleanup_task(r):
-            try:
-                # 这句代码可能会阻塞几秒钟，但在后台线程中运行不会影响主程序
-                r.stop()
-            except Exception as e:
-                print(f"资源释放异常(已忽略): {e}")
-
-        cleanup_thread = threading.Thread(target=cleanup_task, args=(reader_instance,))
-        cleanup_thread.daemon = True  # 设置为守护线程，防止阻碍程序退出
-        cleanup_thread.start()
+            # 立即通知 UI
+            self._emit_status("stopped", "已断开")
 
     def _smart_sleep(self, ms):
         if ms <= 0 or self.force_exit: return
@@ -217,13 +185,11 @@ class VideoService(QObject):
         return self.workers.get(camera_index)
 
     def start_camera(self, index: int):
-        """手动启动指定相机"""
         if index in self.workers:
             self.workers[index].start_requested.emit()
             self.logger.info(f"发送启动指令: 相机 {index}", LogCategory.VIDEO)
 
     def stop_camera(self, index: int):
-        """手动停止指定相机"""
         if index in self.workers:
             self.workers[index].stop_work()
             self.logger.info(f"发送停止指令: 相机 {index}", LogCategory.VIDEO)
