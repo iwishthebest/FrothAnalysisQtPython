@@ -7,14 +7,14 @@ import pyqtgraph as pg
 import numpy as np
 from datetime import datetime, timedelta
 
-# 引入服务
+# 引入 OPC 服务
 from src.services.opc_service import get_opc_service
 from src.services.data_service import get_data_service
 
 
 class StatCard(QFrame):
     """
-    美化的数据展示卡片组件
+    [新增] 美化的数据展示卡片组件
     包含：标题、数值、单位、状态指示灯
     """
 
@@ -57,6 +57,7 @@ class StatCard(QFrame):
         # 2. 中部：数值
         self.value_label = QLabel("--")
         self.value_label.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        # 使用对应的主题色显示数值
         self.value_label.setStyleSheet(f"color: #2c3e50; font-size: 28px; font-weight: bold; font-family: Arial;")
         layout.addWidget(self.value_label)
 
@@ -81,8 +82,10 @@ class MonitoringPage(QWidget):
         self.last_chart_update = datetime.min
         self.chart_update_interval = 600  # 10分钟
 
-        # 数据缓冲 (100个点)
+        # 数据缓冲
         self.max_points = 100
+        # [修改] 初始化时间数组 (存储 timestamp float)
+        self.time_data = np.zeros(self.max_points)
         self.feed_grade_data = np.zeros(self.max_points)
         self.conc_grade_data = np.zeros(self.max_points)
 
@@ -94,6 +97,7 @@ class MonitoringPage(QWidget):
         self.load_history()
 
     def setup_ui(self):
+        # 整体背景色
         self.setStyleSheet("background-color: #f5f6fa;")
 
         layout = QVBoxLayout(self)
@@ -114,11 +118,13 @@ class MonitoringPage(QWidget):
 
     def create_metrics_section(self):
         """创建关键指标区域"""
+        # 不使用 GroupBox，直接用 Layout 布局卡片，更简洁
         container = QWidget()
         layout = QHBoxLayout(container)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(20)
 
+        # 创建三个漂亮的卡片
         self.card_feed = StatCard("原矿铅品位 (Feed)", "%", "#3498db", "⛏️")
         self.card_conc = StatCard("高铅精矿品位 (Conc)", "%", "#e74c3c", "💎")
         self.card_rec = StatCard("铅回收率 (Recovery)", "%", "#2ecc71", "📈")
@@ -149,13 +155,17 @@ class MonitoringPage(QWidget):
         pg.setConfigOption('background', 'w')
         pg.setConfigOption('foreground', 'k')
 
-        self.feed_plot = pg.PlotWidget()
+        # [修改] 使用 DateAxisItem 作为 x 轴
+        date_axis_1 = pg.DateAxisItem(orientation='bottom')
+        self.feed_plot = pg.PlotWidget(axisItems={'bottom': date_axis_1})
         self.feed_plot.setTitle("原矿铅品位趋势", color="#3498db", size="10pt")
         self.feed_plot.showGrid(x=True, y=True, alpha=0.3)
         self.feed_plot.setLabel('left', '品位', units='%')
         self.feed_curve = self.feed_plot.plot(pen=pg.mkPen(color='#3498db', width=2))
 
-        self.conc_plot = pg.PlotWidget()
+        # 为第二个图表也创建独立的 DateAxisItem
+        date_axis_2 = pg.DateAxisItem(orientation='bottom')
+        self.conc_plot = pg.PlotWidget(axisItems={'bottom': date_axis_2})
         self.conc_plot.setTitle("高铅精矿品位趋势", color="#e74c3c", size="10pt")
         self.conc_plot.showGrid(x=True, y=True, alpha=0.3)
         self.conc_plot.setLabel('left', '品位', units='%')
@@ -187,6 +197,7 @@ class MonitoringPage(QWidget):
         self.data_table.setColumnCount(4)
         self.data_table.setHorizontalHeaderLabels(["时间", "原矿品位(%)", "精矿品位(%)", "回收率(%)"])
 
+        # 美化表格
         self.data_table.setStyleSheet("""
             QTableWidget { border: none; gridline-color: #f0f0f0; }
             QHeaderView::section { background-color: #f8f9fa; border: none; border-bottom: 1px solid #e0e0e0; padding: 5px; font-weight: bold; }
@@ -222,54 +233,65 @@ class MonitoringPage(QWidget):
                 return
 
             # 3. 准备图表数据
+            times = []
             feeds = []
             concs = []
 
             for row in history:
-                # 处理可能为 None 的情况
-                f = row['feed_grade'] if row['feed_grade'] is not None else 0.0
-                c = row['conc_grade'] if row['conc_grade'] is not None else 0.0
-                feeds.append(f)
-                concs.append(c)
+                # 解析时间戳
+                ts_val = row['timestamp']
+                dt = None
+                if isinstance(ts_val, str):
+                    try:
+                        # 尝试带微秒
+                        dt = datetime.strptime(ts_val, "%Y-%m-%d %H:%M:%S.%f")
+                    except ValueError:
+                        try:
+                            # 尝试不带微秒
+                            dt = datetime.strptime(ts_val, "%Y-%m-%d %H:%M:%S")
+                        except:
+                            continue  # 解析失败跳过
+                elif isinstance(ts_val, datetime):
+                    dt = ts_val
+
+                if dt:
+                    times.append(dt.timestamp())  # 转为秒级 timestamp
+                    feeds.append(row['feed_grade'] if row['feed_grade'] is not None else 0.0)
+                    concs.append(row['conc_grade'] if row['conc_grade'] is not None else 0.0)
 
             # 截取最后 max_points 个点
-            if len(feeds) > self.max_points:
+            if len(times) > self.max_points:
+                times = times[-self.max_points:]
                 feeds = feeds[-self.max_points:]
                 concs = concs[-self.max_points:]
 
             # 填充到数组尾部 (保持时间顺序)
-            count = len(feeds)
+            count = len(times)
             if count > 0:
+                self.time_data[-count:] = times
                 self.feed_grade_data[-count:] = feeds
                 self.conc_grade_data[-count:] = concs
 
                 # 刷新图表
-                self.feed_curve.setData(self.feed_grade_data)
-                self.conc_curve.setData(self.conc_grade_data)
+                self.feed_curve.setData(x=self.time_data, y=self.feed_grade_data)
+                self.conc_curve.setData(x=self.time_data, y=self.conc_grade_data)
 
-                # 4. 填充表格 (显示最新的10条)
+                # 4. 填充表格 (显示最新的10条，倒序)
                 self.data_table.setRowCount(0)
-                # 倒序遍历，因为我们想让最新的数据显示在最上面
-                # history 本身是按时间正序排列的
-                recent_data = history  # 使用所有历史数据
 
-                for row in recent_data:
-                    # 每次插入到第0行，这样自然就是最新的在上面
+                # 获取所有历史数据
+                for row in history:
                     ts_val = row['timestamp']
-                    # 处理 timestamp 格式 (可能是 str 或 datetime)
-                    if isinstance(ts_val, str):
-                        try:
-                            # 尝试解析并只显示时间部分
-                            dt = datetime.strptime(ts_val, "%Y-%m-%d %H:%M:%S.%f")
-                            time_str = dt.strftime("%H:%M:%S")
-                        except ValueError:
-                            try:
-                                dt = datetime.strptime(ts_val, "%Y-%m-%d %H:%M:%S")
-                                time_str = dt.strftime("%H:%M:%S")
-                            except:
-                                time_str = ts_val[-8:] if len(ts_val) >= 8 else ts_val
-                    else:
+                    # 格式化时间显示
+                    time_str = str(ts_val)
+                    if isinstance(ts_val, datetime):
                         time_str = ts_val.strftime("%H:%M:%S")
+                    elif isinstance(ts_val, str):
+                        try:
+                            dt = datetime.strptime(ts_val, "%Y-%m-%d %H:%M:%S")
+                            time_str = dt.strftime("%H:%M:%S")
+                        except:
+                            time_str = ts_val.split(' ')[-1]  # 简单取最后一部分
 
                     f_val = row['feed_grade']
                     c_val = row['conc_grade']
@@ -326,14 +348,19 @@ class MonitoringPage(QWidget):
             self.last_chart_update = now
             timestamp_str = now.strftime("%H:%M:%S")
 
+            # [修改] 更新时间数组
+            self.time_data = np.roll(self.time_data, -1)
+            self.time_data[-1] = now.timestamp()  # 存入当前时间戳
+
             self.feed_grade_data = np.roll(self.feed_grade_data, -1)
             self.feed_grade_data[-1] = val_feed
 
             self.conc_grade_data = np.roll(self.conc_grade_data, -1)
             self.conc_grade_data[-1] = val_conc
 
-            self.feed_curve.setData(self.feed_grade_data)
-            self.conc_curve.setData(self.conc_grade_data)
+            # [修改] 绘图时指定 x=时间
+            self.feed_curve.setData(x=self.time_data, y=self.feed_grade_data)
+            self.conc_curve.setData(x=self.time_data, y=self.conc_grade_data)
 
             self.data_table.insertRow(0)
             self.data_table.setItem(0, 0, QTableWidgetItem(timestamp_str))
