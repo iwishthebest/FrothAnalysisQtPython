@@ -12,6 +12,7 @@ __pycache__/
 *.pyo
 
 # 忽略日志和缓存文件
+/logs/**
 *.log
 *.cache
 

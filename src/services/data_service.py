@@ -18,11 +18,22 @@ try:
     from . import BaseService, ServiceError, ServiceStatus
 except ImportError:
     from PySide6.QtCore import QObject
+
+
     class BaseService(QObject):
         def __init__(self, name): super().__init__()
+
+
     class ServiceStatus:
-        STARTING = "STARTING"; RUNNING = "RUNNING"; STOPPING = "STOPPING"; STOPPED = "STOPPED"; ERROR = "ERROR"
-    class ServiceError(Exception): pass
+        STARTING = "STARTING";
+        RUNNING = "RUNNING";
+        STOPPING = "STOPPING";
+        STOPPED = "STOPPED";
+        ERROR = "ERROR"
+
+
+    class ServiceError(Exception):
+        pass
 
 
 class DataService(BaseService):
@@ -45,27 +56,27 @@ class DataService(BaseService):
             # --- 铅快粗工序 (Rougher) ---
             'qkc_dinghuangyao1': 'YJ.yj_qkc_dinghuangyao1:actualflow',
             'qkc_dinghuangyao2': 'YJ.yj_qkc_dinghuangyao2:actualflow',
-            'qkc_yiliudan1':     'YJ.yj_qkc_yiliudan1:actualflow',
-            'qkc_yiliudan2':     'YJ.yj_qkc_yiliudan2:actualflow',
-            'qkc_shihui':        'YJ.yj_qkc_shihui:actualflow',
-            'qkc_5_you':         'YJ.yj_qkc_5#you:actualflow',
+            'qkc_yiliudan1': 'YJ.yj_qkc_yiliudan1:actualflow',
+            'qkc_yiliudan2': 'YJ.yj_qkc_yiliudan2:actualflow',
+            'qkc_shihui': 'YJ.yj_qkc_shihui:actualflow',
+            'qkc_5_you': 'YJ.yj_qkc_5#you:actualflow',
 
             # --- 铅快精一工序 (Cleaner 1) ---
             'qkj1_dinghuangyao': 'YJ.yj_qkj1_dinghuangyao:actualflow',
-            'qkj1_yiliudan':     'YJ.yj_qkj1_yiliudan:actualflow',
-            'qkj1_shihui':       'YJ.yj_qkj1_shihui:actualflow',
+            'qkj1_yiliudan': 'YJ.yj_qkj1_yiliudan:actualflow',
+            'qkj1_shihui': 'YJ.yj_qkj1_shihui:actualflow',
 
             # --- 铅快精二工序 (Cleaner 2) ---
-            'qkj2_yiliudan':     'YJ.yj_qkj2_yiliudan:actualflow',
-            'qkj2_shihui':       'YJ.yj_qkj2_shihui:actualflow',
+            'qkj2_yiliudan': 'YJ.yj_qkj2_yiliudan:actualflow',
+            'qkj2_shihui': 'YJ.yj_qkj2_shihui:actualflow',
             'qkj2_dinghuangyao': 'YJ.yj_qkj2_dinghuangyao:actualflow',
 
             # --- 铅快精三工序 (Cleaner 3) ---
             'qkj3_dinghuangyao': 'YJ.yj_qkj3_dinghuangyao:actualflow',
-            'qkj3_yiliudan':     'YJ.yj_qkj3_yiliudan:actualflow',
-            'qkj3_ds1':          'YJ.yj_qkj3_ds1:actualflow',
-            'qkj3_ds2':          'YJ.yj_qkj3_ds2:actualflow',
-            'qkj3_shihui':       'YJ.yj_qkj3_shihui:actualflow'
+            'qkj3_yiliudan': 'YJ.yj_qkj3_yiliudan:actualflow',
+            'qkj3_ds1': 'YJ.yj_qkj3_ds1:actualflow',
+            'qkj3_ds2': 'YJ.yj_qkj3_ds2:actualflow',
+            'qkj3_shihui': 'YJ.yj_qkj3_shihui:actualflow'
         }
 
         self.all_csv_headers = self._load_all_headers()
@@ -119,14 +130,19 @@ class DataService(BaseService):
             cursor = conn.cursor()
 
             # 1. 创建基础表结构（如果不存在）
-            cursor.execute('''
+            # 构建药剂列 SQL
+            reagent_columns_sql = ""
+            # 字典 self.reagent_mapping 的键顺序决定了药剂列的顺序
+            for col_name in self.reagent_mapping.keys():
+                reagent_columns_sql += f",\n                             {col_name} REAL"
+            cursor.execute(f'''
                          CREATE TABLE IF NOT EXISTS process_history
                          (
                              id INTEGER PRIMARY KEY AUTOINCREMENT,
                              timestamp DATETIME NOT NULL,
                              feed_grade REAL,
                              conc_grade REAL,
-                             recovery REAL,
+                             recovery REAL{reagent_columns_sql},
                              raw_data JSON
                          )
                          ''')
@@ -187,7 +203,7 @@ class DataService(BaseService):
                 for key, val in data.items():
                     if isinstance(val, dict) and 'value' in val:
                         v = val['value']
-                        flat_data[key] = float(v) if v is not None else None
+                        flat_data[key] = float(v) if v is not None else 0.0
                     else:
                         flat_data[key] = val
 
@@ -205,7 +221,7 @@ class DataService(BaseService):
             def get_clean(key):
                 val = flat_data.get(key)
                 if val == -9999.0 or val is None:
-                    return None
+                    return 0.0
                 return val
 
             # 1. 核心指标
@@ -214,7 +230,7 @@ class DataService(BaseService):
             c_total = get_clean("KYFX.kyfx_zqxk_grade_Pb")
             t = get_clean("KYFX.kyfx_qw_grade_Pb")
 
-            rec = None
+            rec = 0.0
             try:
                 if f is not None and c_total is not None and t is not None:
                     if f > 0 and (c_total - t) != 0:
@@ -292,7 +308,9 @@ class DataService(BaseService):
             cursor.execute(sql, (start_time, end_time))
             return [dict(row) for row in cursor.fetchall()]
 
+
 _data_service_instance = None
+
 
 def get_data_service() -> DataService:
     global _data_service_instance
