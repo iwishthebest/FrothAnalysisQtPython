@@ -1,6 +1,7 @@
 import cv2
 import numpy as np
 import time
+import threading  # [新增] 用于异步释放资源
 from typing import Optional, List, Dict, Any
 from PySide6.QtCore import QObject, QThread, Signal, Qt, QMutex
 from PySide6.QtGui import QImage
@@ -17,7 +18,6 @@ class CameraWorker(QObject):
     """
     frame_ready = Signal(int, QImage)
     status_changed = Signal(int, dict)
-    # [新增] 内部启动信号，用于跨线程调用 start_work
     start_requested = Signal()
 
     def __init__(self, camera_index: int, config: CameraConfig):
@@ -30,12 +30,10 @@ class CameraWorker(QObject):
         self.reader: Optional[RTSPStreamReader] = None
         self.display_size = (640, 480)
 
-        # [新增] 连接启动信号
         self.start_requested.connect(self.start_work)
 
     def start_work(self):
         """线程启动入口"""
-        # [修改] 防止重复启动
         if self.running:
             return
 
@@ -43,15 +41,12 @@ class CameraWorker(QObject):
         self.force_exit = False
         self.logger = get_logging_service()
 
-        # 发送状态：正在启动
         self._emit_status("starting", "正在启动...")
 
         self._initialize_connection()
         self._capture_loop()
 
-        # 循环结束后发送状态
-        if not self.force_exit:
-            self._emit_status("stopped", "已断开")
+        # 循环结束后的状态在 _capture_loop 中处理
 
     def stop_work(self, force_exit=False):
         """停止工作"""
@@ -60,17 +55,12 @@ class CameraWorker(QObject):
 
     def set_simulation_mode(self, enabled: bool):
         self.simulation_mode = enabled
+        # 模拟模式切换也建议异步处理防止卡顿，但通常模拟模式关闭很快
         if enabled and self.reader:
-            try:
-                self.reader.stop()
-            except:
-                pass
+            self._async_release_reader(self.reader)
             self.reader = None
 
     def _initialize_connection(self):
-        # [修改] 即使 config.enabled 为 False，如果手动调用 start_work 也应该尝试连接
-        # 这里我们假设手动点击连接按钮意味着临时启用
-
         if self.force_exit:
             return
 
@@ -99,7 +89,7 @@ class CameraWorker(QObject):
         """主捕获循环"""
         while self.running:
             if self.force_exit:
-                return
+                break
 
             loop_start = time.time()
             frame = None
@@ -123,11 +113,37 @@ class CameraWorker(QObject):
             sleep_time = max(1, int(33 - elapsed))
             self._smart_sleep(sleep_time)
 
-        if not self.force_exit and self.reader:
+        # === 循环结束后的清理 ===
+
+        # 1. 如果是程序强制退出，什么都不做，直接返回
+        if self.force_exit:
+            return
+
+        # 2. 如果是手动停止，执行异步清理
+        if self.reader:
+            self._async_release_reader(self.reader)
+            self.reader = None
+
+        # 3. 立即通知 UI 已停止
+        self._emit_status("stopped", "已断开")
+
+    def _async_release_reader(self, reader_instance):
+        """
+        [核心修复] 异步释放 RTSP 资源
+        创建一个临时的后台线程去执行 reader.stop()，避免阻塞当前 Worker 线程。
+        这样 UI 可以立即收到 "已断开" 信号，而不用等待底层 socket 关闭。
+        """
+
+        def cleanup_task(r):
             try:
-                self.reader.stop()
+                # 这句代码可能会阻塞几秒钟，但在后台线程中运行不会影响主程序
+                r.stop()
             except Exception as e:
-                print(f"相机 {self.camera_index} 资源释放异常: {e}")
+                print(f"资源释放异常(已忽略): {e}")
+
+        cleanup_thread = threading.Thread(target=cleanup_task, args=(reader_instance,))
+        cleanup_thread.daemon = True  # 设置为守护线程，防止阻碍程序退出
+        cleanup_thread.start()
 
     def _smart_sleep(self, ms):
         if ms <= 0 or self.force_exit: return
@@ -189,12 +205,8 @@ class VideoService(QObject):
             worker = CameraWorker(i, config)
             worker.moveToThread(thread)
 
-            # [修改] 只有配置为 enabled 的相机才自动启动
             if config.enabled:
                 thread.started.connect(worker.start_work)
-
-            # 即使不自动启动，也要保持 connect 以便后续手动启动
-            # 注意：worker.start_requested 已经连接到了 start_work
 
             self.threads[i] = thread
             self.workers[i] = worker
@@ -205,14 +217,13 @@ class VideoService(QObject):
         return self.workers.get(camera_index)
 
     def start_camera(self, index: int):
-        """[新增] 手动启动指定相机"""
+        """手动启动指定相机"""
         if index in self.workers:
-            # 通过信号跨线程调用
             self.workers[index].start_requested.emit()
             self.logger.info(f"发送启动指令: 相机 {index}", LogCategory.VIDEO)
 
     def stop_camera(self, index: int):
-        """[新增] 手动停止指定相机"""
+        """手动停止指定相机"""
         if index in self.workers:
             self.workers[index].stop_work()
             self.logger.info(f"发送停止指令: 相机 {index}", LogCategory.VIDEO)
