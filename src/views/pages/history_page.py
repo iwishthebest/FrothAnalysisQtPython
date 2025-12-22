@@ -1,26 +1,54 @@
 import numpy as np
 import json
+import pandas as pd
+from datetime import datetime, time
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QGroupBox,
                                QLabel, QTableWidget, QTableWidgetItem,
                                QPushButton, QDateEdit, QComboBox, QHeaderView, QMessageBox)
 from PySide6.QtCore import Qt, QDate
 from PySide6.QtGui import QFont, QColor
-import pandas as pd
-from datetime import datetime, time
 
-# [新增] 引入数据服务
 from src.services.data_service import get_data_service
 
 
 class HistoryPage(QWidget):
     """历史数据页面 - 显示查询和分析历史数据"""
 
+    # 定义药剂标签映射 (Tag -> 显示名称)
+    # 依据 resources/tags/tagList.csv 整理
+    REAGENT_COLUMNS = [
+        # --- 铅快粗工序 (Rougher) ---
+        ('YJ.yj_qkc_5#you:actualflow', '铅快粗\n2#油'),
+        ('YJ.yj_qkc_dinghuangyao1:actualflow', '铅快粗\n丁黄药1'),
+        ('YJ.yj_qkc_dinghuangyao2:actualflow', '铅快粗\n丁黄药2'),
+        ('YJ.yj_qkc_shihui:actualflow', '铅快粗\n石灰'),
+        ('YJ.yj_qkc_yiliudan1:actualflow', '铅快粗\n乙硫氮1'),
+        ('YJ.yj_qkc_yiliudan2:actualflow', '铅快粗\n乙硫氮2'),
+
+        # --- 铅快精一工序 (Cleaner 1) ---
+        ('YJ.yj_qkj1_dinghuangyao:actualflow', '铅快精一\n丁黄药'),
+        ('YJ.yj_qkj1_shihui:actualflow', '铅快精一\n石灰'),
+        ('YJ.yj_qkj1_yiliudan:actualflow', '铅快精一\n乙硫氮'),
+
+        # --- 铅快精二工序 (Cleaner 2) ---
+        ('YJ.yj_qkj2_yiliudan:actualflow', '铅快精二\n乙硫氮'),
+        ('YJ.yj_qkj2_shihui:actualflow', '铅快精二\n石灰'),
+        ('YJ.yj_qkj2_dinghuangyao:actualflow', '铅快精二\n硫酸铜'),  # tagList描述为硫酸铜
+
+        # --- 铅快精三工序 (Cleaner 3) ---
+        ('YJ.yj_qkj3_ds1:actualflow', '铅快精三\nDS1'),
+        ('YJ.yj_qkj3_ds2:actualflow', '铅快精三\nDS2'),
+        ('YJ.yj_qkj3_dinghuangyao:actualflow', '铅快精三\n丁黄药'),
+        ('YJ.yj_qkj3_shihui:actualflow', '铅快精三\n石灰'),
+        ('YJ.yj_qkj3_yiliudan:actualflow', '铅快精三\n乙硫氮'),
+    ]
+
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.data_service = get_data_service()  # 获取数据服务实例
+        self.data_service = get_data_service()
         self.history_data = None
         self.setup_ui()
-        # 初始化时自动加载最近7天的数据
+        # 初始化时自动加载数据
         self.on_query_clicked()
 
     def setup_ui(self):
@@ -36,93 +64,78 @@ class HistoryPage(QWidget):
         title_label.setStyleSheet("color: #2c3e50; margin: 10px;")
         layout.addWidget(title_label)
 
-        # 查询条件区域
-        query_widget = self.create_query_section()
-        layout.addWidget(query_widget)
-
-        # 数据表格区域
-        table_widget = self.create_table_section()
-        layout.addWidget(table_widget)
-
-        # 统计信息区域
-        stats_widget = self.create_stats_section()
-        layout.addWidget(stats_widget)
+        # 各功能区域
+        layout.addWidget(self.create_query_section())
+        layout.addWidget(self.create_table_section())
+        layout.addWidget(self.create_stats_section())
 
     def create_query_section(self):
         """创建查询条件区域"""
         widget = QGroupBox("数据查询条件")
         layout = QHBoxLayout(widget)
 
-        # 开始日期
         layout.addWidget(QLabel("开始日期:"))
         self.start_date_edit = QDateEdit()
         self.start_date_edit.setDate(QDate.currentDate().addDays(-7))
         self.start_date_edit.setCalendarPopup(True)
         layout.addWidget(self.start_date_edit)
 
-        # 结束日期
         layout.addWidget(QLabel("结束日期:"))
         self.end_date_edit = QDateEdit()
         self.end_date_edit.setDate(QDate.currentDate())
         self.end_date_edit.setCalendarPopup(True)
         layout.addWidget(self.end_date_edit)
 
-        # 数据类型
         layout.addWidget(QLabel("数据类型:"))
         self.data_type_combo = QComboBox()
-        self.data_type_combo.addItems([
-            "全部数据", "品位数据", "回收率数据", "液位数据", "加药量数据"
-        ])
+        self.data_type_combo.addItems(["全部数据", "品位数据", "回收率数据", "药剂流量数据"])
         layout.addWidget(self.data_type_combo)
 
-        # 查询按钮
         self.query_btn = QPushButton("查询数据")
         self.query_btn.setFixedSize(100, 30)
         self.query_btn.clicked.connect(self.on_query_clicked)
         layout.addWidget(self.query_btn)
 
-        # 导出按钮
         self.export_btn = QPushButton("导出数据")
         self.export_btn.setFixedSize(100, 30)
         self.export_btn.clicked.connect(self.on_export_clicked)
         layout.addWidget(self.export_btn)
 
         layout.addStretch()
-
         return widget
 
     def create_table_section(self):
-        """创建数据表格区域"""
+        """创建数据表格区域 (动态列)"""
         widget = QGroupBox("历史数据记录")
         layout = QVBoxLayout(widget)
 
-        # 创建表格
         self.history_table = QTableWidget()
-        # [修改] 增加列数以容纳更多药剂
-        self.history_table.setColumnCount(13)
-        # [修改] 细分加药量为具体药剂
-        self.history_table.setHorizontalHeaderLabels([
-            "时间",
-            "铅品位(%)", "锌品位(%)", "回收率(%)",
-            "硫酸铜\n(ml/min)", "丁黄药\n(ml/min)", "乙硫氮\n(ml/min)",
-            "2#油\n(ml/min)", "石灰\n(ml/min)", "DS\n(ml/min)",
-            "液位(m)", "泡沫厚度(cm)", "状态"
-        ])
 
-        # 设置表格属性
+        # 固定列 + 药剂列
+        # 固定列: 时间, 铅品位, 锌品位, 回收率
+        fixed_headers = ["时间", "铅品位\n(%)", "锌品位\n(%)", "回收率\n(%)"]
+        reagent_headers = [name for _, name in self.REAGENT_COLUMNS]
+        # 结尾列: 状态 (可按需添加液位等)
+        end_headers = ["状态"]
+
+        all_headers = fixed_headers + reagent_headers + end_headers
+
+        self.history_table.setColumnCount(len(all_headers))
+        self.history_table.setHorizontalHeaderLabels(all_headers)
+
+        # 设置样式和属性
         self.history_table.setAlternatingRowColors(True)
         self.history_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self.history_table.verticalHeader().setVisible(False)
 
         header = self.history_table.horizontalHeader()
         header.setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
-        header.setMinimumSectionSize(80)
+        header.setMinimumSectionSize(80)  # 保证列宽不至于太窄
 
         self.history_table.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
-        self.history_table.setSortingEnabled(True)
         self.history_table.setMinimumHeight(400)
 
         layout.addWidget(self.history_table)
-
         return widget
 
     def create_stats_section(self):
@@ -130,12 +143,10 @@ class HistoryPage(QWidget):
         widget = QGroupBox("数据统计分析")
         layout = QHBoxLayout(widget)
 
-        # 统计指标
         stats_data = [
             {"name": "平均铅品位", "value": "--", "unit": "%", "color": "#e74c3c"},
             {"name": "最高铅品位", "value": "--", "unit": "%", "color": "#c0392b"},
             {"name": "平均回收率", "value": "--", "unit": "%", "color": "#27ae60"},
-            {"name": "最高回收率", "value": "--", "unit": "%", "color": "#229954"},
             {"name": "运行时长", "value": "--", "unit": "小时", "color": "#3498db"},
             {"name": "数据点数", "value": "--", "unit": "条", "color": "#9b59b6"}
         ]
@@ -147,31 +158,25 @@ class HistoryPage(QWidget):
         return widget
 
     def create_stat_item(self, stat_info):
-        """创建单个统计指标组件"""
+        """创建单个统计项"""
         widget = QWidget()
         layout = QVBoxLayout(widget)
         layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        # 指标名称
         name_label = QLabel(stat_info["name"])
         name_label.setFont(QFont("Microsoft YaHei", 10))
-        name_label.setStyleSheet(f"color: {stat_info['color']};")
 
-        # 指标数值
         value_label = QLabel(stat_info["value"])
-        value_label.setObjectName(f"stat_{stat_info['name']}")
+        value_label.setObjectName(f"stat_{stat_info['name']}")  # 方便查找更新
         value_label.setFont(QFont("Microsoft YaHei", 14, QFont.Weight.Bold))
         value_label.setStyleSheet(f"color: {stat_info['color']};")
 
-        # 单位
         unit_label = QLabel(stat_info["unit"])
-        unit_label.setFont(QFont("Microsoft YaHei", 9))
         unit_label.setStyleSheet("color: #7f8c8d;")
 
         layout.addWidget(name_label)
         layout.addWidget(value_label)
         layout.addWidget(unit_label)
-
         return widget
 
     def populate_table(self):
@@ -181,187 +186,156 @@ class HistoryPage(QWidget):
             return
 
         self.history_table.setRowCount(len(self.history_data))
-
-        # 倒序显示
         sorted_data = self.history_data.sort_values(by='timestamp', ascending=False)
 
         for row, (_, record) in enumerate(sorted_data.iterrows()):
-            # 0. 时间
+            # 1. 时间
             ts = record['timestamp']
             time_str = ts.strftime("%H:%M:%S") if isinstance(ts, datetime) else str(ts)
             self.history_table.setItem(row, 0, QTableWidgetItem(time_str))
 
-            # 1. 铅品位
+            # 2. 核心指标
             lead_val = record.get('lead_grade', 0.0)
             lead_item = QTableWidgetItem(f"{lead_val:.2f}")
-            self.set_grade_color(lead_item, lead_val, 50)
+            self.set_grade_color(lead_item, lead_val, 50)  # 假设50是基准
             self.history_table.setItem(row, 1, lead_item)
 
-            # 2. 锌品位
             zinc_val = record.get('zinc_grade', 0.0)
             self.history_table.setItem(row, 2, QTableWidgetItem(f"{zinc_val:.2f}" if zinc_val > 0 else "--"))
 
-            # 3. 回收率
             rec_val = record.get('recovery_rate', 0.0)
-            recovery_item = QTableWidgetItem(f"{rec_val:.2f}")
-            self.set_grade_color(recovery_item, rec_val, 85)
-            self.history_table.setItem(row, 3, recovery_item)
+            rec_item = QTableWidgetItem(f"{rec_val:.2f}")
+            self.set_grade_color(rec_item, rec_val, 85)  # 假设85是基准
+            self.history_table.setItem(row, 3, rec_item)
 
-            # [新增] 4-9. 各种药剂流量
-            reagents = ['liushuantong', 'dinghuangyao', 'yiliudan', '2_oil', 'shihui', 'ds']
-            for i, r_key in enumerate(reagents):
-                val = record.get(r_key, 0.0)
-                # 使用 col = 4 + i
-                self.history_table.setItem(row, 4 + i, QTableWidgetItem(f"{val:.1f}"))
+            # 3. 动态药剂列 (从第4列开始)
+            col_idx = 4
+            for tag_key, _ in self.REAGENT_COLUMNS:
+                val = record.get(tag_key)  # 获取DataFrame中对应的药剂列
+                text = f"{val:.1f}" if val is not None and val != 0 else "--"
+                item = QTableWidgetItem(text)
+                if val is not None and val > 0:
+                    item.setBackground(QColor(240, 248, 255))  # 有流量显示淡蓝色背景
+                self.history_table.setItem(row, col_idx, item)
+                col_idx += 1
 
-            # 10. 液位
-            level_val = record.get('water_level', 0.0)
-            self.history_table.setItem(row, 10, QTableWidgetItem(f"{level_val:.2f}" if level_val > 0 else "--"))
-
-            # 11. 泡沫厚度
-            foam_val = record.get('foam_thickness', 0.0)
-            self.history_table.setItem(row, 11, QTableWidgetItem(f"{foam_val:.1f}" if foam_val > 0 else "--"))
-
-            # 12. 状态
-            status_str = record.get('status', '正常')
-            status_item = QTableWidgetItem(status_str)
-            if status_str == '异常':
-                status_item.setBackground(QColor(255, 200, 200))
-            self.history_table.setItem(row, 12, status_item)
+            # 4. 状态 (最后一列)
+            status_str = "正常"  # 简化逻辑
+            self.history_table.setItem(row, col_idx, QTableWidgetItem(status_str))
 
     def set_grade_color(self, item, value, target):
-        """设置品位数值的颜色"""
-        if value >= target + 5:
-            item.setBackground(QColor(200, 255, 200))  # 优秀 - 浅绿
-        elif value >= target - 5:
-            item.setBackground(QColor(255, 255, 200))  # 良好 - 浅黄
-        else:
-            item.setBackground(QColor(255, 200, 200))  # 较差 - 浅红
+        """设置品位颜色"""
+        if value >= target + 2:
+            item.setBackground(QColor(200, 255, 200))  # 优
+        elif value < target - 5:
+            item.setBackground(QColor(255, 220, 220))  # 差
 
     def on_query_clicked(self):
-        """查询按钮点击事件 - 连接真实数据库并解析药剂数据"""
+        """查询数据并解析"""
         try:
             start_qdate = self.start_date_edit.date()
             end_qdate = self.end_date_edit.date()
             start_dt = datetime.combine(start_qdate.toPython(), time.min)
             end_dt = datetime.combine(end_qdate.toPython(), time.max)
 
-            results = self.data_service.get_historical_data(start_dt, end_dt)
+            # 获取数据库原始数据
+            db_results = self.data_service.get_historical_data(start_dt, end_dt)
 
-            if not results:
+            if not db_results:
                 self.history_data = pd.DataFrame()
                 QMessageBox.information(self, "提示", "该时间段内无数据记录")
             else:
-                data_list = []
-                for row in results:
-                    # 解析时间
-                    ts = row['timestamp']
-                    if isinstance(ts, str):
-                        try:
-                            ts = datetime.strptime(ts, "%Y-%m-%d %H:%M:%S.%f")
-                        except ValueError:
-                            try:
-                                ts = datetime.strptime(ts, "%Y-%m-%d %H:%M:%S")
-                            except:
-                                pass
+                parsed_rows = []
+                for row in db_results:
+                    # 基础信息
+                    ts_str = row['timestamp']
+                    try:
+                        if isinstance(ts_str, str):
+                            if '.' in ts_str:
+                                ts = datetime.strptime(ts_str, "%Y-%m-%d %H:%M:%S.%f")
+                            else:
+                                ts = datetime.strptime(ts_str, "%Y-%m-%d %H:%M:%S")
+                        else:
+                            ts = ts_str
+                    except:
+                        ts = datetime.now()
 
-                    # [新增] 解析 raw_data 以获取药剂流量
-                    reagent_flows = {
-                        'liushuantong': 0.0, 'dinghuangyao': 0.0, 'yiliudan': 0.0,
-                        '2_oil': 0.0, 'shihui': 0.0, 'ds': 0.0
+                    item = {
+                        'timestamp': ts,
+                        'lead_grade': row['feed_grade'],  # 注意：此处映射需根据实际需求调整，DB中feed/conc可能对应不同
+                        'zinc_grade': 0.0,  # 数据库若无此字段则置0
+                        'recovery_rate': row['recovery']
                     }
 
-                    raw_json = row.get('raw_data')
+                    # 解析 raw_data JSON 获取具体药剂值
+                    raw_json = row['raw_data']
                     if raw_json:
                         try:
                             raw_data = json.loads(raw_json)
-                            # 遍历所有标签数据进行分类汇总
-                            for tag, val in raw_data.items():
-                                # 确保只统计实际流量 (actualflow) 且值有效
-                                if 'actualflow' in tag and isinstance(val, (int, float)):
-                                    if 'liushuantong' in tag:
-                                        reagent_flows['liushuantong'] += val
-                                    elif 'dinghuangyao' in tag:
-                                        reagent_flows['dinghuangyao'] += val
-                                    elif 'yiliudan' in tag:
-                                        reagent_flows['yiliudan'] += val
-                                    elif '2#you' in tag or '5#you' in tag:  # 兼容 tagList 中的命名
-                                        reagent_flows['2_oil'] += val
-                                    elif 'shihui' in tag:
-                                        reagent_flows['shihui'] += val
-                                    elif 'ds' in tag.lower():  # 匹配 ds1, ds2 等
-                                        reagent_flows['ds'] += val
+                            # 遍历预定义的药剂列，从raw_data中提取
+                            for tag_key, _ in self.REAGENT_COLUMNS:
+                                # raw_data 结构通常是 {Tag: {value: ..., quality: ...}} 或 {Tag: value}
+                                # 根据 data_service.py 的 record_data，它是扁平化的 {Tag: Value} (float or None)
+                                val = raw_data.get(tag_key)
+                                item[tag_key] = val if val is not None else 0.0
                         except Exception as e:
-                            print(f"解析 raw_data 失败: {e}")
+                            # JSON解析失败，所有药剂置0
+                            for tag_key, _ in self.REAGENT_COLUMNS:
+                                item[tag_key] = 0.0
+                    else:
+                        for tag_key, _ in self.REAGENT_COLUMNS:
+                            item[tag_key] = 0.0
 
-                    item_data = {
-                        'timestamp': ts,
-                        'lead_grade': row['conc_grade'] if row['conc_grade'] is not None else 0.0,
-                        'zinc_grade': 0.0,
-                        'recovery_rate': row['recovery'] if row['recovery'] is not None else 0.0,
-                        'water_level': 0.0,  # 如果 raw_data 中有液位tag也可在此解析
-                        'foam_thickness': 0.0,
-                        'status': '正常'
-                    }
-                    # 合并药剂数据
-                    item_data.update(reagent_flows)
-                    data_list.append(item_data)
+                    parsed_rows.append(item)
 
-                self.history_data = pd.DataFrame(data_list)
+                self.history_data = pd.DataFrame(parsed_rows)
 
             self.populate_table()
             self.update_statistics()
 
         except Exception as e:
-            print(f"查询数据时出错: {e}")
+            print(f"查询出错: {e}")
             import traceback
             traceback.print_exc()
-            QMessageBox.warning(self, "查询错误", f"获取历史数据失败: {str(e)}")
-
-    def on_export_clicked(self):
-        """导出按钮点击事件"""
-        try:
-            if self.history_data is None or self.history_data.empty:
-                QMessageBox.warning(self, "提示", "当前无数据可导出")
-                return
-
-            filename = f"history_export_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
-            # 模拟导出
-            # self.history_data.to_csv(filename, index=False, encoding='utf-8-sig')
-            print(f"数据已导出到: {filename}")
-            QMessageBox.information(self, "导出成功", f"数据已成功导出到运行目录:\n{filename}")
-
-        except Exception as e:
-            print(f"导出数据时出错: {e}")
-            QMessageBox.warning(self, "导出错误", str(e))
+            QMessageBox.warning(self, "错误", f"查询失败: {str(e)}")
 
     def update_statistics(self):
-        """更新统计信息"""
+        """更新统计面板"""
         if self.history_data is None or self.history_data.empty:
-            # 清空显示
-            for name in ["平均铅品位", "最高铅品位", "平均回收率", "最高回收率", "运行时长", "数据点数"]:
-                label = self.findChild(QLabel, f"stat_{name}")
-                if label: label.setText("--")
             return
 
-        # 计算统计指标
+        # 示例统计
         avg_lead = self.history_data['lead_grade'].mean()
         max_lead = self.history_data['lead_grade'].max()
-        avg_recovery = self.history_data['recovery_rate'].mean()
-        max_recovery = self.history_data['recovery_rate'].max()
-        data_count = len(self.history_data)
+        avg_rec = self.history_data['recovery_rate'].mean()
+        count = len(self.history_data)
 
-        # 简单估算时长 (小时)
-        if data_count > 1:
-            duration = (self.history_data['timestamp'].max() - self.history_data[
-                'timestamp'].min()).total_seconds() / 3600
-        else:
-            duration = 0
-
-        # 更新显示
+        # 查找并更新Label (需要findChild配合ObjectName)
+        # 这里简化处理，实际需确保 create_stat_item 设置了 objectName
         self.findChild(QLabel, "stat_平均铅品位").setText(f"{avg_lead:.2f}")
         self.findChild(QLabel, "stat_最高铅品位").setText(f"{max_lead:.2f}")
-        self.findChild(QLabel, "stat_平均回收率").setText(f"{avg_recovery:.2f}")
-        self.findChild(QLabel, "stat_最高回收率").setText(f"{max_recovery:.2f}")
-        self.findChild(QLabel, "stat_运行时长").setText(f"{duration:.1f}")
-        self.findChild(QLabel, "stat_数据点数").setText(f"{data_count}")
+        self.findChild(QLabel, "stat_平均回收率").setText(f"{avg_rec:.2f}")
+        self.findChild(QLabel, "stat_数据点数").setText(str(count))
+
+    def on_export_clicked(self):
+        """导出数据"""
+        if self.history_data is None or self.history_data.empty:
+            QMessageBox.warning(self, "提示", "无数据可导出")
+            return
+
+        try:
+            filename = f"history_export_{datetime.now().strftime('%Y%m%d%H%M%S')}.csv"
+            # 重命名列以便导出更友好的CSV
+            export_df = self.history_data.copy()
+            rename_map = {tag: name.replace('\n', '') for tag, name in self.REAGENT_COLUMNS}
+            rename_map.update({
+                'timestamp': '时间',
+                'lead_grade': '铅品位',
+                'recovery_rate': '回收率'
+            })
+            export_df.rename(columns=rename_map, inplace=True)
+
+            export_df.to_csv(filename, index=False, encoding='utf-8-sig')
+            QMessageBox.information(self, "成功", f"数据已导出至 {filename}")
+        except Exception as e:
+            QMessageBox.warning(self, "导出失败", str(e))
