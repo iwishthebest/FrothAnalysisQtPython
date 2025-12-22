@@ -12,18 +12,32 @@ from datetime import datetime
 from threading import Lock
 from pathlib import Path
 from config.config_system import config_manager
+
 try:
     from . import BaseService, ServiceError, ServiceStatus
 except ImportError:
     from PySide6.QtCore import QObject
+
+
     class BaseService(QObject):
         def __init__(self, name): super().__init__()
+
+
     class ServiceStatus:
-        STARTING="STARTING"; RUNNING="RUNNING"; STOPPING="STOPPING"; STOPPED="STOPPED"; ERROR="ERROR"
-    class ServiceError(Exception): pass
+        STARTING = "STARTING";
+        RUNNING = "RUNNING";
+        STOPPING = "STOPPING";
+        STOPPED = "STOPPED";
+        ERROR = "ERROR"
+
+
+    class ServiceError(Exception):
+        pass
+
 
 class DataService(BaseService):
-    def __init__(self, db_path: str = "data/system.db", csv_dir: str = "data/csv", tag_list_file: str = "resources/tags/tagList.csv"):
+    def __init__(self, db_path: str = "data/system.db", csv_dir: str = "data/csv",
+                 tag_list_file: str = "resources/tags/tagList.csv"):
         super().__init__("data_service")
         self.db_path = db_path
         self.csv_dir = Path(csv_dir)
@@ -41,7 +55,7 @@ class DataService(BaseService):
         # 状态记录
         # [修改] 使用独立的周期性保存计时器，避免被快频保存重置
         self.last_periodic_save_time = datetime.min
-        self.yj_value_cache = {} # 用于比对药剂值是否变化
+        self.yj_value_cache = {}  # 用于比对药剂值是否变化
 
     def start(self) -> bool:
         try:
@@ -73,9 +87,12 @@ class DataService(BaseService):
                     if "source:" in raw: raw = raw.split(']')[-1]
                     cleaned = re.sub(r'[\[\]]', '', raw).strip()
 
-                    if cleaned.startswith('yj_'): tag = f'YJ.{cleaned}'
-                    elif cleaned.startswith('kyfx_'): tag = f'KYFX.{cleaned}'
-                    else: tag = cleaned
+                    if cleaned.startswith('yj_'):
+                        tag = f'YJ.{cleaned}'
+                    elif cleaned.startswith('kyfx_'):
+                        tag = f'KYFX.{cleaned}'
+                    else:
+                        tag = cleaned
                     headers.append(tag)
         except Exception as e:
             print(f"加载标签列表失败: {e}")
@@ -84,15 +101,27 @@ class DataService(BaseService):
     def _init_database(self) -> None:
         with sqlite3.connect(self.db_path) as conn:
             conn.execute('''
-                CREATE TABLE IF NOT EXISTS process_history (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    timestamp DATETIME NOT NULL,
-                    feed_grade REAL,
-                    conc_grade REAL,
-                    recovery REAL,
-                    raw_data JSON
-                )
-            ''')
+                         CREATE TABLE IF NOT EXISTS process_history
+                         (
+                             id
+                             INTEGER
+                             PRIMARY
+                             KEY
+                             AUTOINCREMENT,
+                             timestamp
+                             DATETIME
+                             NOT
+                             NULL,
+                             feed_grade
+                             REAL,
+                             conc_grade
+                             REAL,
+                             recovery
+                             REAL,
+                             raw_data
+                             JSON
+                         )
+                         ''')
             conn.commit()
 
     def record_data(self, data: Dict[str, Any]) -> None:
@@ -145,29 +174,41 @@ class DataService(BaseService):
             print(f"数据保存失败: {e}")
 
     def _save_to_sqlite(self, timestamp, flat_data: Dict[str, Any]):
-        """存入数据库 (仅存 KPI 用于查询)"""
+        """存入数据库 (处理无效值)"""
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.cursor()
-            f = flat_data.get("KYFX.kyfx_yk_grade_Pb", 0.0)
-            c = flat_data.get("KYFX.kyfx_gqxk_grade_Pb", 0.0) # 高铅
-            c_total = flat_data.get("KYFX.kyfx_zqxk_grade_Pb", 0.0) # 总铅
-            t = flat_data.get("KYFX.kyfx_qw_grade_Pb", 0.0)
 
-            rec = 0.0
+            # [新增] 辅助函数：清洗无效值
+            def get_clean(key):
+                val = flat_data.get(key)
+                if val == -9999.0 or val is None:
+                    return None  # 数据库存为 NULL
+                return val
+
+            f = get_clean("KYFX.kyfx_yk_grade_Pb")
+            c = get_clean("KYFX.kyfx_gqxk_grade_Pb")
+            c_total = get_clean("KYFX.kyfx_zqxk_grade_Pb")
+            t = get_clean("KYFX.kyfx_qw_grade_Pb")
+
+            rec = None
             try:
-                if f > 0 and (c_total - t) != 0:
-                    rec = (c_total * (f - t)) / (f * (c_total - t)) * 100
-            except: pass
+                # 只有数据全有效才计算回收率
+                if f is not None and c_total is not None and t is not None:
+                    if f > 0 and (c_total - t) != 0:
+                        rec = (c_total * (f - t)) / (f * (c_total - t)) * 100
+            except:
+                pass
 
             json_dump = json.dumps(flat_data)
+
             cursor.execute('''
-                INSERT INTO process_history (timestamp, feed_grade, conc_grade, recovery, raw_data)
-                VALUES (?, ?, ?, ?, ?)
-            ''', (timestamp, f, c, rec, json_dump))
+                           INSERT INTO process_history (timestamp, feed_grade, conc_grade, recovery, raw_data)
+                           VALUES (?, ?, ?, ?, ?)
+                           ''', (timestamp, f, c, rec, json_dump))
             conn.commit()
 
     def _save_to_csv(self, timestamp, flat_data: Dict[str, Any]):
-        """存入 CSV (存所有标签)"""
+        """存入 CSV (处理无效值)"""
         filename = f"{timestamp.strftime('%Y%m%d')}_process_data.csv"
         filepath = self.csv_dir / filename
         file_exists = filepath.exists()
@@ -175,15 +216,18 @@ class DataService(BaseService):
         with open(filepath, 'a', newline='', encoding='utf-8-sig') as f:
             writer = csv.writer(f)
 
-            # 使用全量 Headers
             headers = ["Timestamp"] + (self.all_csv_headers if self.all_csv_headers else list(flat_data.keys()))
-
             if not file_exists:
                 writer.writerow(headers)
 
             row = [timestamp.strftime("%Y-%m-%d %H:%M:%S")]
-            for key in headers[1:]: # 跳过 Timestamp
-                row.append(flat_data.get(key, ""))
+            for key in headers[1:]:
+                val = flat_data.get(key)
+                # [新增] CSV 中将 -9999 存为空字符串
+                if val == -9999.0 or val is None:
+                    row.append("")
+                else:
+                    row.append(val)
 
             writer.writerow(row)
 
@@ -198,14 +242,17 @@ class DataService(BaseService):
             conn.row_factory = sqlite3.Row
             cursor = conn.cursor()
             cursor.execute('''
-                SELECT timestamp, feed_grade, conc_grade, recovery 
-                FROM process_history
-                WHERE timestamp BETWEEN ? AND ?
-                ORDER BY timestamp
-            ''', (start_time, end_time))
+                           SELECT timestamp, feed_grade, conc_grade, recovery
+                           FROM process_history
+                           WHERE timestamp BETWEEN ? AND ?
+                           ORDER BY timestamp
+                           ''', (start_time, end_time))
             return [dict(row) for row in cursor.fetchall()]
 
+
 _data_service_instance = None
+
+
 def get_data_service() -> DataService:
     global _data_service_instance
     if _data_service_instance is None:

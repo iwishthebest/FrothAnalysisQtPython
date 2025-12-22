@@ -1,11 +1,11 @@
 import numpy as np
 from PySide6.QtWidgets import (QWidget, QGridLayout, QLabel, QFrame,
-                               QVBoxLayout, QHBoxLayout, QSizePolicy)
-from PySide6.QtCore import Qt, Signal, Slot
-from PySide6.QtGui import QImage, QPixmap
+                               QVBoxLayout, QHBoxLayout, QSizePolicy, QPushButton, QStyle)
+from PySide6.QtCore import Qt, Signal, Slot, QSize
+from PySide6.QtGui import QImage, QPixmap, QIcon
 
 from config.config_system import config_manager
-from src.services.video_service import get_video_service, CameraWorker
+from src.services.video_service import get_video_service
 
 
 class VideoFrame(QFrame):
@@ -18,45 +18,99 @@ class VideoFrame(QFrame):
         super().__init__(parent)
         self.config = camera_config
         self.camera_index = camera_config.camera_index
+        self.is_paused = False  # 记录当前的暂停状态
 
         self.setFrameStyle(QFrame.Shape.StyledPanel | QFrame.Shadow.Raised)
         self.setLineWidth(1)
         self._setup_ui()
         self._update_style()
+        self._setup_connections()
 
     def _setup_ui(self):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(1, 1, 1, 1)
         layout.setSpacing(0)
 
-        # 标题栏
+        # === 1. 标题栏 ===
         self.header_bg = QWidget()
-        self.header_bg.setFixedHeight(24)
+        self.header_bg.setFixedHeight(28)
         header_layout = QHBoxLayout(self.header_bg)
         header_layout.setContentsMargins(5, 0, 5, 0)
+        header_layout.setSpacing(5)
 
+        # 标题
         self.title_label = QLabel(self.config.get_display_name())
         self.title_label.setStyleSheet("color: white; font-weight: bold;")
+        header_layout.addWidget(self.title_label)
 
+        header_layout.addStretch()
+
+        # [控制按钮组]
+        # 1. 连接按钮
+        self.btn_connect = QPushButton()
+        self.btn_connect.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_MediaPlay))
+        self.btn_connect.setToolTip("连接相机")
+        self.btn_connect.setFixedSize(22, 22)
+        self._set_btn_style(self.btn_connect)
+
+        # 2. [新增] 暂停按钮
+        self.btn_pause = QPushButton()
+        self.btn_pause.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_MediaPause))
+        self.btn_pause.setToolTip("暂停/冻结画面")
+        self.btn_pause.setFixedSize(22, 22)
+        self.btn_pause.setCheckable(True)  # 设置为可选中状态
+        self._set_btn_style(self.btn_pause)
+
+        # 3. 断开按钮
+        self.btn_disconnect = QPushButton()
+        self.btn_disconnect.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_MediaStop))
+        self.btn_disconnect.setToolTip("断开连接")
+        self.btn_disconnect.setFixedSize(22, 22)
+        self._set_btn_style(self.btn_disconnect)
+
+        header_layout.addWidget(self.btn_connect)
+        header_layout.addWidget(self.btn_pause)
+        header_layout.addWidget(self.btn_disconnect)
+
+        # 状态指示灯
         self.status_indicator = QLabel()
         self.status_indicator.setFixedSize(10, 10)
         self.status_indicator.setStyleSheet("background-color: #95a5a6; border-radius: 5px;")
-
-        header_layout.addWidget(self.title_label)
-        header_layout.addStretch()
         header_layout.addWidget(self.status_indicator)
+
         layout.addWidget(self.header_bg)
 
-        # 视频区域
+        # === 2. 视频区域 ===
         self.video_label = QLabel()
         self.video_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.video_label.setFixedSize(self.DISPLAY_WIDTH, self.DISPLAY_HEIGHT)
         self.video_label.setStyleSheet("background-color: #2c3e50; color: #7f8c8d; font-size: 14px;")
-        self.video_label.setText("等待信号..." if self.config.enabled else "已禁用")
+
+        # 初始显示状态
+        if self.config.enabled:
+            self.video_label.setText("等待信号...")
+            self.btn_connect.setEnabled(False)
+            self.btn_pause.setEnabled(True)
+            self.btn_disconnect.setEnabled(True)
+        else:
+            self.video_label.setText("已禁用 (点击播放连接)")
+            self.btn_connect.setEnabled(True)
+            self.btn_pause.setEnabled(False)
+            self.btn_disconnect.setEnabled(False)
+            self.status_indicator.setStyleSheet("background-color: #7f8c8d; border-radius: 5px;")  # 灰色
+
         self.video_label.setScaledContents(True)
 
         layout.addWidget(self.video_label)
         self.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+
+    def _set_btn_style(self, btn):
+        btn.setStyleSheet("""
+            QPushButton { background-color: transparent; border: none; border-radius: 3px; }
+            QPushButton:hover { background-color: rgba(255, 255, 255, 50); }
+            QPushButton:disabled { opacity: 0.3; }
+            QPushButton:checked { background-color: rgba(255, 255, 255, 80); border: 1px solid #bdc3c7;}
+        """)
 
     def _update_style(self):
         ui_color = self.config.get_ui_color()
@@ -65,25 +119,84 @@ class VideoFrame(QFrame):
         self.header_bg.setStyleSheet(
             f"background-color: {ui_color}; border-top-left-radius: 3px; border-top-right-radius: 3px;")
 
+    def _setup_connections(self):
+        """按钮事件连接"""
+        self.btn_connect.clicked.connect(self.on_connect_clicked)
+        self.btn_disconnect.clicked.connect(self.on_disconnect_clicked)
+        self.btn_pause.clicked.connect(self.on_pause_clicked)
+
+    def on_connect_clicked(self):
+        """点击连接"""
+        self.video_label.setText("正在连接...")
+        self.btn_connect.setEnabled(False)
+        # 重置暂停状态
+        self.is_paused = False
+        self.btn_pause.setChecked(False)
+        self.btn_pause.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_MediaPause))
+
+        get_video_service().start_camera(self.camera_index)
+
+    def on_disconnect_clicked(self):
+        """点击断开"""
+        self.video_label.setText("正在断开...")
+        self.btn_disconnect.setEnabled(False)
+        self.btn_pause.setEnabled(False)
+        get_video_service().stop_camera(self.camera_index)
+
+    def on_pause_clicked(self, checked):
+        """点击暂停/继续"""
+        self.is_paused = checked
+        if self.is_paused:
+            # 切换为"播放"图标，表示点击可恢复
+            self.btn_pause.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_MediaPlay))
+            self.btn_pause.setToolTip("恢复画面")
+        else:
+            # 切换为"暂停"图标
+            self.btn_pause.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_MediaPause))
+            self.btn_pause.setToolTip("暂停/冻结画面")
+
+        get_video_service().pause_camera(self.camera_index, self.is_paused)
+
     @Slot(int, QImage)
     def handle_frame_ready(self, camera_index: int, image: QImage):
-        """槽函数：接收已处理好的 QImage 并显示"""
-        # 安全检查：确保是发给自己的
         if camera_index != self.camera_index:
             return
-
-        # 直接显示，耗时极低
-        self.video_label.setPixmap(QPixmap.fromImage(image))
-
-        # 简单的状态指示 (有信号即绿灯)
-        self.status_indicator.setStyleSheet("background-color: #2ecc71; border-radius: 5px;")
+        # 如果前端认为暂停了，也不更新（虽然 Worker 已经不发了，双重保险）
+        if not self.is_paused:
+            self.video_label.setPixmap(QPixmap.fromImage(image))
+            self.status_indicator.setStyleSheet("background-color: #2ecc71; border-radius: 5px;")
 
     @Slot(int, dict)
     def handle_status_change(self, camera_index: int, status: dict):
         if camera_index != self.camera_index:
             return
-        # 这里可以根据 status['status'] 改变指示灯颜色
-        pass
+
+        status_code = status.get('status')
+
+        # 根据状态更新按钮可用性
+        if status_code in ['connected', 'simulation']:
+            self.btn_connect.setEnabled(False)
+            self.btn_disconnect.setEnabled(True)
+            self.btn_pause.setEnabled(True)
+
+            color = "#2ecc71" if status_code == 'connected' else "#f39c12"  # 绿/橙
+            self.status_indicator.setStyleSheet(f"background-color: {color}; border-radius: 5px;")
+
+        elif status_code == 'stopped':
+            self.video_label.setText("已断开")
+            self.video_label.setPixmap(QPixmap())  # 清除画面
+
+            self.btn_connect.setEnabled(True)
+            self.btn_disconnect.setEnabled(False)
+            self.btn_pause.setEnabled(False)
+            self.btn_pause.setChecked(False)  # 重置选中状态
+            self.is_paused = False
+
+            self.status_indicator.setStyleSheet("background-color: #7f8c8d; border-radius: 5px;")  # 灰
+
+        elif status_code == 'starting':
+            self.video_label.setText("正在启动...")
+            self.status_indicator.setStyleSheet("background-color: #f1c40f; border-radius: 5px;")  # 黄
 
 
 class VideoDisplayWidget(QWidget):
@@ -106,6 +219,7 @@ class VideoDisplayWidget(QWidget):
         self.main_layout.setSpacing(spacing)
 
         all_cameras = config_manager.get_camera_configs()
+        # 显示所有配置中 layout.visible=True 的相机
         visible_cameras = [cam for cam in all_cameras if cam.layout.visible]
 
         if not visible_cameras:
@@ -125,8 +239,5 @@ class VideoDisplayWidget(QWidget):
         for cam_index, frame_widget in self.frames.items():
             worker = self.video_service.get_worker(cam_index)
             if worker:
-                # 信号连接：Worker线程 -> UI线程
                 worker.frame_ready.connect(frame_widget.handle_frame_ready)
                 worker.status_changed.connect(frame_widget.handle_status_change)
-
-    # 注意：不再需要 update_display 方法
