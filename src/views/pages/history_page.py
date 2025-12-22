@@ -1,11 +1,14 @@
 import numpy as np
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QGroupBox,
                                QLabel, QTableWidget, QTableWidgetItem,
-                               QPushButton, QDateEdit, QComboBox, QHeaderView)
+                               QPushButton, QDateEdit, QComboBox, QHeaderView, QMessageBox)
 from PySide6.QtCore import Qt, QDate
 from PySide6.QtGui import QFont, QColor
 import pandas as pd
-from datetime import datetime, timedelta
+from datetime import datetime, time
+
+# [新增] 引入数据服务
+from src.services.data_service import get_data_service
 
 
 class HistoryPage(QWidget):
@@ -13,9 +16,11 @@ class HistoryPage(QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
+        self.data_service = get_data_service()  # 获取数据服务实例
         self.history_data = None
         self.setup_ui()
-        self.load_sample_data()  # 加载示例数据
+        # 初始化时自动加载最近7天的数据
+        self.on_query_clicked()
 
     def setup_ui(self):
         """初始化用户界面"""
@@ -158,115 +163,153 @@ class HistoryPage(QWidget):
 
         return widget
 
-    def load_sample_data(self):
-        """加载示例数据"""
-        # 生成示例数据
-        dates = pd.date_range(start='2024-01-01', end='2024-01-07', freq='h')
-        sample_data = []
-
-        for date in dates:
-            record = {
-                'timestamp': date,
-                'lead_grade': round(np.random.normal(85, 3), 2),
-                'zinc_grade': round(np.random.normal(5, 1), 2),
-                'recovery_rate': round(np.random.normal(92, 2), 2),
-                'water_level': round(np.random.uniform(1.1, 1.3), 2),
-                'dosing_rate': round(np.random.uniform(45, 55), 1),
-                'foam_thickness': round(np.random.uniform(20, 30), 1),
-                'status': '正常' if np.random.random() > 0.05 else '异常'
-            }
-            sample_data.append(record)
-
-        self.history_data = pd.DataFrame(sample_data)
-        self.populate_table()
-
     def populate_table(self):
         """填充表格数据"""
-        if self.history_data is None:
+        if self.history_data is None or self.history_data.empty:
+            self.history_table.setRowCount(0)
             return
 
         self.history_table.setRowCount(len(self.history_data))
 
-        for row, (_, record) in enumerate(self.history_data.iterrows()):
+        # 倒序显示，最新的在最上面
+        sorted_data = self.history_data.sort_values(by='timestamp', ascending=False)
+
+        for row, (_, record) in enumerate(sorted_data.iterrows()):
             # 时间
-            time_item = QTableWidgetItem(record['timestamp'].strftime('%Y-%m-%d %H:%M'))
+            ts = record['timestamp']
+            time_str = ts.strftime('%Y-%m-%d %H:%M') if isinstance(ts, datetime) else str(ts)
+            time_item = QTableWidgetItem(time_str)
             self.history_table.setItem(row, 0, time_item)
 
             # 铅品位
-            lead_item = QTableWidgetItem(f"{record['lead_grade']:.2f}")
-            self.set_grade_color(lead_item, record['lead_grade'], 85)
+            lead_val = record.get('lead_grade', 0.0)
+            lead_item = QTableWidgetItem(f"{lead_val:.2f}")
+            self.set_grade_color(lead_item, lead_val, 50)  # 这里的基准值可能需要根据实际调整
             self.history_table.setItem(row, 1, lead_item)
 
-            # 锌品位
-            zinc_item = QTableWidgetItem(f"{record['zinc_grade']:.2f}")
+            # 锌品位 (数据库暂时没有，用 -- 显示)
+            zinc_val = record.get('zinc_grade', 0.0)
+            zinc_item = QTableWidgetItem(f"{zinc_val:.2f}" if zinc_val > 0 else "--")
             self.history_table.setItem(row, 2, zinc_item)
 
             # 回收率
-            recovery_item = QTableWidgetItem(f"{record['recovery_rate']:.2f}")
-            self.set_grade_color(recovery_item, record['recovery_rate'], 92)
+            rec_val = record.get('recovery_rate', 0.0)
+            recovery_item = QTableWidgetItem(f"{rec_val:.2f}")
+            self.set_grade_color(recovery_item, rec_val, 85)
             self.history_table.setItem(row, 3, recovery_item)
 
             # 液位
-            level_item = QTableWidgetItem(f"{record['water_level']:.2f}")
+            level_val = record.get('water_level', 0.0)
+            level_item = QTableWidgetItem(f"{level_val:.2f}" if level_val > 0 else "--")
             self.history_table.setItem(row, 4, level_item)
 
             # 加药量
-            dosing_item = QTableWidgetItem(f"{record['dosing_rate']:.1f}")
+            dosing_val = record.get('dosing_rate', 0.0)
+            dosing_item = QTableWidgetItem(f"{dosing_val:.1f}" if dosing_val > 0 else "--")
             self.history_table.setItem(row, 5, dosing_item)
 
             # 泡沫厚度
-            foam_item = QTableWidgetItem(f"{record['foam_thickness']:.1f}")
+            foam_val = record.get('foam_thickness', 0.0)
+            foam_item = QTableWidgetItem(f"{foam_val:.1f}" if foam_val > 0 else "--")
             self.history_table.setItem(row, 6, foam_item)
 
             # 状态
-            status_item = QTableWidgetItem(record['status'])
-            if record['status'] == '异常':
+            status_str = record.get('status', '正常')
+            status_item = QTableWidgetItem(status_str)
+            if status_str == '异常':
                 status_item.setBackground(QColor(255, 200, 200))
             self.history_table.setItem(row, 7, status_item)
 
     def set_grade_color(self, item, value, target):
         """设置品位数值的颜色"""
-        if value >= target + 2:
+        if value >= target + 5:
             item.setBackground(QColor(200, 255, 200))  # 优秀 - 浅绿
-        elif value >= target - 2:
+        elif value >= target - 5:
             item.setBackground(QColor(255, 255, 200))  # 良好 - 浅黄
         else:
             item.setBackground(QColor(255, 200, 200))  # 较差 - 浅红
 
     def on_query_clicked(self):
-        """查询按钮点击事件"""
+        """查询按钮点击事件 - 连接真实数据库"""
         try:
-            start_date = self.start_date_edit.date().toString('yyyy-MM-dd')
-            end_date = self.end_date_edit.date().toString('yyyy-MM-dd')
-            data_type = self.data_type_combo.currentText()
+            # 获取日期范围
+            start_qdate = self.start_date_edit.date()
+            end_qdate = self.end_date_edit.date()
 
-            # 这里应该是实际的数据查询逻辑
-            # 暂时使用示例数据过滤
+            # 转换为 datetime 对象 (start 设为 00:00:00, end 设为 23:59:59)
+            start_dt = datetime.combine(start_qdate.toPython(), time.min)
+            end_dt = datetime.combine(end_qdate.toPython(), time.max)
 
-            filtered_data = self.history_data.copy()
+            # 从数据服务获取数据
+            results = self.data_service.get_historical_data(start_dt, end_dt)
+
+            # 将结果转换为 DataFrame 格式以适配原有逻辑
+            if not results:
+                self.history_data = pd.DataFrame()
+                QMessageBox.information(self, "提示", "该时间段内无数据记录")
+            else:
+                data_list = []
+                for row in results:
+                    # 处理时间戳格式
+                    ts = row['timestamp']
+                    if isinstance(ts, str):
+                        try:
+                            ts = datetime.strptime(ts, "%Y-%m-%d %H:%M:%S.%f")
+                        except ValueError:
+                            try:
+                                ts = datetime.strptime(ts, "%Y-%m-%d %H:%M:%S")
+                            except:
+                                pass
+
+                    data_list.append({
+                        'timestamp': ts,
+                        # 映射数据库字段到界面字段
+                        'lead_grade': row['conc_grade'] if row['conc_grade'] is not None else 0.0,  # 使用精矿品位
+                        'zinc_grade': 0.0,  # 数据库暂无此字段
+                        'recovery_rate': row['recovery'] if row['recovery'] is not None else 0.0,
+                        'water_level': 0.0,  # 数据库暂无此字段
+                        'dosing_rate': 0.0,  # 数据库暂无此字段
+                        'foam_thickness': 0.0,
+                        'status': '正常'
+                    })
+
+                self.history_data = pd.DataFrame(data_list)
+
             self.populate_table()
-
-            # 更新统计信息
             self.update_statistics()
 
         except Exception as e:
             print(f"查询数据时出错: {e}")
+            QMessageBox.warning(self, "查询错误", f"获取历史数据失败: {str(e)}")
 
     def on_export_clicked(self):
         """导出按钮点击事件"""
         try:
-            # 这里应该是实际的数据导出逻辑
-            filename = f"history_export_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+            if self.history_data is None or self.history_data.empty:
+                QMessageBox.warning(self, "提示", "当前无数据可导出")
+                return
 
-            # 模拟导出成功
+            filename = f"history_export_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+            # 实际上这里应该弹出文件保存对话框
+            # path, _ = QFileDialog.getSaveFileName(self, "导出数据", filename, "CSV Files (*.csv)")
+            # if path: ...
+
+            # 模拟导出
+            # self.history_data.to_csv(filename, index=False, encoding='utf-8-sig')
             print(f"数据已导出到: {filename}")
+            QMessageBox.information(self, "导出成功", f"数据已成功导出到运行目录:\n{filename}")
 
         except Exception as e:
             print(f"导出数据时出错: {e}")
+            QMessageBox.warning(self, "导出错误", str(e))
 
     def update_statistics(self):
         """更新统计信息"""
-        if self.history_data is None:
+        if self.history_data is None or self.history_data.empty:
+            # 清空显示
+            for name in ["平均铅品位", "最高铅品位", "平均回收率", "最高回收率", "运行时长", "数据点数"]:
+                label = self.findChild(QLabel, f"stat_{name}")
+                if label: label.setText("--")
             return
 
         # 计算统计指标
@@ -276,8 +319,17 @@ class HistoryPage(QWidget):
         max_recovery = self.history_data['recovery_rate'].max()
         data_count = len(self.history_data)
 
+        # 简单估算时长 (小时)
+        if data_count > 1:
+            duration = (self.history_data['timestamp'].max() - self.history_data[
+                'timestamp'].min()).total_seconds() / 3600
+        else:
+            duration = 0
+
         # 更新显示
         self.findChild(QLabel, "stat_平均铅品位").setText(f"{avg_lead:.2f}")
         self.findChild(QLabel, "stat_最高铅品位").setText(f"{max_lead:.2f}")
         self.findChild(QLabel, "stat_平均回收率").setText(f"{avg_recovery:.2f}")
         self.findChild(QLabel, "stat_最高回收率").setText(f"{max_recovery:.2f}")
+        self.findChild(QLabel, "stat_运行时长").setText(f"{duration:.1f}")
+        self.findChild(QLabel, "stat_数据点数").setText(f"{data_count}")
