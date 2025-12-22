@@ -5,15 +5,16 @@ from PySide6.QtCore import Qt, Slot
 from PySide6.QtGui import QFont
 import pyqtgraph as pg
 import numpy as np
-from datetime import datetime
+from datetime import datetime, timedelta
 
-# 引入 OPC 服务
+# 引入服务
 from src.services.opc_service import get_opc_service
+from src.services.data_service import get_data_service
 
 
 class StatCard(QFrame):
     """
-    [新增] 美化的数据展示卡片组件
+    美化的数据展示卡片组件
     包含：标题、数值、单位、状态指示灯
     """
 
@@ -56,7 +57,6 @@ class StatCard(QFrame):
         # 2. 中部：数值
         self.value_label = QLabel("--")
         self.value_label.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
-        # 使用对应的主题色显示数值
         self.value_label.setStyleSheet(f"color: #2c3e50; font-size: 28px; font-weight: bold; font-family: Arial;")
         layout.addWidget(self.value_label)
 
@@ -75,12 +75,13 @@ class MonitoringPage(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.opc_service = get_opc_service()
+        self.data_service = get_data_service()
 
         # 状态记录
         self.last_chart_update = datetime.min
         self.chart_update_interval = 600  # 10分钟
 
-        # 数据缓冲
+        # 数据缓冲 (100个点)
         self.max_points = 100
         self.feed_grade_data = np.zeros(self.max_points)
         self.conc_grade_data = np.zeros(self.max_points)
@@ -89,8 +90,10 @@ class MonitoringPage(QWidget):
         self.setup_charts()
         self.setup_connections()
 
+        # [新增] 初始化时加载历史数据
+        self.load_history()
+
     def setup_ui(self):
-        # 整体背景色
         self.setStyleSheet("background-color: #f5f6fa;")
 
         layout = QVBoxLayout(self)
@@ -111,13 +114,11 @@ class MonitoringPage(QWidget):
 
     def create_metrics_section(self):
         """创建关键指标区域"""
-        # 不使用 GroupBox，直接用 Layout 布局卡片，更简洁
         container = QWidget()
         layout = QHBoxLayout(container)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(20)
 
-        # [关键] 创建三个漂亮的卡片，并保存为 self.card_xxx
         self.card_feed = StatCard("原矿铅品位 (Feed)", "%", "#3498db", "⛏️")
         self.card_conc = StatCard("高铅精矿品位 (Conc)", "%", "#e74c3c", "💎")
         self.card_rec = StatCard("铅回收率 (Recovery)", "%", "#2ecc71", "📈")
@@ -186,7 +187,6 @@ class MonitoringPage(QWidget):
         self.data_table.setColumnCount(4)
         self.data_table.setHorizontalHeaderLabels(["时间", "原矿品位(%)", "精矿品位(%)", "回收率(%)"])
 
-        # 美化表格
         self.data_table.setStyleSheet("""
             QTableWidget { border: none; gridline-color: #f0f0f0; }
             QHeaderView::section { background-color: #f8f9fa; border: none; border-bottom: 1px solid #e0e0e0; padding: 5px; font-weight: bold; }
@@ -209,72 +209,137 @@ class MonitoringPage(QWidget):
         if worker:
             worker.data_updated.connect(self.handle_data_updated)
 
+    def load_history(self):
+        """[新增] 从数据库加载历史数据填充图表和表格"""
+        try:
+            # 1. 计算时间范围 (过去24小时)
+            end_time = datetime.now()
+            start_time = end_time - timedelta(hours=24)
+
+            # 2. 查询数据
+            history = self.data_service.get_historical_data(start_time, end_time)
+            if not history:
+                return
+
+            # 3. 准备图表数据
+            feeds = []
+            concs = []
+
+            for row in history:
+                # 处理可能为 None 的情况
+                f = row['feed_grade'] if row['feed_grade'] is not None else 0.0
+                c = row['conc_grade'] if row['conc_grade'] is not None else 0.0
+                feeds.append(f)
+                concs.append(c)
+
+            # 截取最后 max_points 个点
+            if len(feeds) > self.max_points:
+                feeds = feeds[-self.max_points:]
+                concs = concs[-self.max_points:]
+
+            # 填充到数组尾部 (保持时间顺序)
+            count = len(feeds)
+            if count > 0:
+                self.feed_grade_data[-count:] = feeds
+                self.conc_grade_data[-count:] = concs
+
+                # 刷新图表
+                self.feed_curve.setData(self.feed_grade_data)
+                self.conc_curve.setData(self.conc_grade_data)
+
+                # 4. 填充表格 (显示最新的10条)
+                self.data_table.setRowCount(0)
+                # 倒序遍历，因为我们想让最新的数据显示在最上面
+                # history 本身是按时间正序排列的
+                recent_data = history  # 使用所有历史数据
+
+                for row in recent_data:
+                    # 每次插入到第0行，这样自然就是最新的在上面
+                    ts_val = row['timestamp']
+                    # 处理 timestamp 格式 (可能是 str 或 datetime)
+                    if isinstance(ts_val, str):
+                        try:
+                            # 尝试解析并只显示时间部分
+                            dt = datetime.strptime(ts_val, "%Y-%m-%d %H:%M:%S.%f")
+                            time_str = dt.strftime("%H:%M:%S")
+                        except ValueError:
+                            try:
+                                dt = datetime.strptime(ts_val, "%Y-%m-%d %H:%M:%S")
+                                time_str = dt.strftime("%H:%M:%S")
+                            except:
+                                time_str = ts_val[-8:] if len(ts_val) >= 8 else ts_val
+                    else:
+                        time_str = ts_val.strftime("%H:%M:%S")
+
+                    f_val = row['feed_grade']
+                    c_val = row['conc_grade']
+                    r_val = row['recovery']
+
+                    self.data_table.insertRow(0)
+                    self.data_table.setItem(0, 0, QTableWidgetItem(time_str))
+                    self.data_table.setItem(0, 1, QTableWidgetItem(f"{f_val:.2f}" if f_val is not None else "--"))
+                    self.data_table.setItem(0, 2, QTableWidgetItem(f"{c_val:.2f}" if c_val is not None else "--"))
+                    self.data_table.setItem(0, 3, QTableWidgetItem(f"{r_val:.2f}" if r_val is not None else "--"))
+
+                # 限制表格行数
+                while self.data_table.rowCount() > 50:
+                    self.data_table.removeRow(50)
+
+        except Exception as e:
+            print(f"加载历史数据失败: {e}")
+
     @Slot(dict)
     def handle_data_updated(self, data: dict):
         """处理 OPC 数据更新信号"""
 
-        # [修改] 增加无效值过滤逻辑
-        def get_val(tag):
+        def get_val(tag, default=0.0):
             if tag in data and data[tag].get('value') is not None:
-                val = float(data[tag]['value'])
-                # 如果是无效值，返回 None
-                if val == -9999.0:
-                    return None
-                return val
-            return None
+                return float(data[tag]['value'])
+            return default
 
-        # 获取数据 (可能为 None)
-        val_feed = get_val("KYFX.kyfx_yk_grade_Pb")
-        val_conc = get_val("KYFX.kyfx_gqxk_grade_Pb")
-        val_tail = get_val("KYFX.kyfx_qw_grade_Pb")
-        val_conc_total = get_val("KYFX.kyfx_zqxk_grade_Pb")
+        val_feed = get_val("KYFX.kyfx_yk_grade_Pb", 0.0)
+        val_conc = get_val("KYFX.kyfx_gqxk_grade_Pb", 0.0)
+        val_tail = get_val("KYFX.kyfx_qw_grade_Pb", 0.0)
+        val_conc_total = get_val("KYFX.kyfx_zqxk_grade_Pb", 0.0)
 
-        # 计算回收率 (必须所有参与计算的值都有效)
-        val_rec = None
+        val_rec = 0.0
         try:
-            # 只有当所有相关数据都有效(不为None)时才计算
-            if val_feed is not None and val_tail is not None and val_conc_total is not None:
-                c = val_conc_total
-                f = val_feed
-                t = val_tail
-                if f > t and c > t and f > 0 and (c - t) != 0:
-                    numerator = c * (f - t)
-                    denominator = f * (c - t)
-                    res = (numerator / denominator) * 100
-                    val_rec = max(0.0, min(100.0, res))
+            c = val_conc_total
+            f = val_feed
+            t = val_tail
+            if f > t and c > t and f > 0 and (c - t) != 0:
+                numerator = c * (f - t)
+                denominator = f * (c - t)
+                val_rec = (numerator / denominator) * 100
+                val_rec = max(0.0, min(100.0, val_rec))
         except Exception:
-            val_rec = None
+            val_rec = 0.0
 
-        # [修改] 更新卡片显示：如果是 None 则显示 "--"
-        self.card_feed.set_value(f"{val_feed:.2f}" if val_feed is not None else "--")
-        self.card_conc.set_value(f"{val_conc:.2f}" if val_conc is not None else "--")
-        self.card_rec.set_value(f"{val_rec:.2f}" if val_rec is not None else "--")
+        # 更新卡片
+        self.card_feed.set_value(f"{val_feed:.2f}")
+        self.card_conc.set_value(f"{val_conc:.2f}")
+        self.card_rec.set_value(f"{val_rec:.2f}")
 
-        # 图表和表格更新逻辑
+        # 图表和表格更新逻辑 (每10分钟)
         now = datetime.now()
         if (now - self.last_chart_update).total_seconds() >= self.chart_update_interval:
             self.last_chart_update = now
             timestamp_str = now.strftime("%H:%M:%S")
 
-            # 图表数据填充：如果无效，暂时填0 (或者取上一个有效值，这里用0表示断点)
-            plot_feed = val_feed if val_feed is not None else 0.0
-            plot_conc = val_conc if val_conc is not None else 0.0
-
             self.feed_grade_data = np.roll(self.feed_grade_data, -1)
-            self.feed_grade_data[-1] = plot_feed
+            self.feed_grade_data[-1] = val_feed
 
             self.conc_grade_data = np.roll(self.conc_grade_data, -1)
-            self.conc_grade_data[-1] = plot_conc
+            self.conc_grade_data[-1] = val_conc
 
             self.feed_curve.setData(self.feed_grade_data)
             self.conc_curve.setData(self.conc_grade_data)
 
-            # 表格数据填充
             self.data_table.insertRow(0)
             self.data_table.setItem(0, 0, QTableWidgetItem(timestamp_str))
-            self.data_table.setItem(0, 1, QTableWidgetItem(f"{val_feed:.2f}" if val_feed is not None else "--"))
-            self.data_table.setItem(0, 2, QTableWidgetItem(f"{val_conc:.2f}" if val_conc is not None else "--"))
-            self.data_table.setItem(0, 3, QTableWidgetItem(f"{val_rec:.2f}" if val_rec is not None else "--"))
+            self.data_table.setItem(0, 1, QTableWidgetItem(f"{val_feed:.2f}"))
+            self.data_table.setItem(0, 2, QTableWidgetItem(f"{val_conc:.2f}"))
+            self.data_table.setItem(0, 3, QTableWidgetItem(f"{val_rec:.2f}"))
 
             if self.data_table.rowCount() > 50:
                 self.data_table.removeRow(50)
