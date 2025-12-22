@@ -198,18 +198,18 @@ class HistoryPage(QWidget):
             # 2. 核心指标
             # 入矿品位
             feed_grade_val = record.get('feed_grade', 0.0)
-            self.history_table.setItem(row, 2,
-                                       QTableWidgetItem(f"{feed_grade_val:.2f}" if feed_grade_val > 0 else "--"))
+            feed_grade_item = QTableWidgetItem(f"{feed_grade_val:.2f}" if feed_grade_val > 0 else "--")
+            self.history_table.setItem(row, 1, feed_grade_item)
 
             # 高铅精矿品位
             conc_grade_val = record.get('conc_grade', 0.0)
-            conc_grade_item = QTableWidgetItem(f"{conc_grade_val:.2f}")
+            conc_grade_item = QTableWidgetItem(f"{conc_grade_val:.2f}" if conc_grade_val > 0 else "--")
             self.set_grade_color(conc_grade_item, conc_grade_val, 50)  # 假设50是基准
-            self.history_table.setItem(row, 1, conc_grade_item)
+            self.history_table.setItem(row, 2, conc_grade_item)
 
             # 铅回收率
             rec_val = record.get('recovery_rate', 0.0)
-            rec_item = QTableWidgetItem(f"{rec_val:.2f}")
+            rec_item = QTableWidgetItem(f"{rec_val:.2f}" if rec_val > 0 else "--")
             self.set_grade_color(rec_item, rec_val, 85)  # 假设85是基准
             self.history_table.setItem(row, 3, rec_item)
 
@@ -310,8 +310,8 @@ class HistoryPage(QWidget):
             return
 
         # 示例统计
-        avg_lead = self.history_data['lead_grade'].mean()
-        max_lead = self.history_data['lead_grade'].max()
+        avg_lead = self.history_data['conc_grade'].mean()
+        max_lead = self.history_data['conc_grade'].max()
         avg_rec = self.history_data['recovery_rate'].mean()
         count = len(self.history_data)
 
