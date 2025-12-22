@@ -163,7 +163,9 @@ class DataService(BaseService):
                 flat_data = {}
                 for key, val in data.items():
                     if isinstance(val, dict) and 'value' in val:
-                        flat_data[key] = float(val['value'])
+                        # [修改] 处理 None 值 (例如 OPC 返回的无效数据)
+                        v = val['value']
+                        flat_data[key] = float(v) if v is not None else None
                     else:
                         flat_data[key] = val
 
@@ -223,7 +225,7 @@ class DataService(BaseService):
             row = [timestamp.strftime("%Y-%m-%d %H:%M:%S")]
             for key in headers[1:]:
                 val = flat_data.get(key)
-                # [新增] CSV 中将 -9999 存为空字符串
+                # [新增] CSV 中将 -9999 和 None 存为空字符串
                 if val == -9999.0 or val is None:
                     row.append("")
                 else:
