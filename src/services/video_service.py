@@ -17,30 +17,44 @@ class CameraWorker(QObject):
     """
     frame_ready = Signal(int, QImage)
     status_changed = Signal(int, dict)
+    # [新增] 内部启动信号，用于跨线程调用 start_work
+    start_requested = Signal()
 
     def __init__(self, camera_index: int, config: CameraConfig):
         super().__init__()
         self.camera_index = camera_index
         self.config = config
         self.running = False
-        self.force_exit = False  # [新增] 强制退出标志
+        self.force_exit = False
         self.simulation_mode = False
         self.reader: Optional[RTSPStreamReader] = None
         self.display_size = (640, 480)
 
+        # [新增] 连接启动信号
+        self.start_requested.connect(self.start_work)
+
     def start_work(self):
         """线程启动入口"""
+        # [修改] 防止重复启动
+        if self.running:
+            return
+
         self.running = True
         self.force_exit = False
         self.logger = get_logging_service()
+
+        # 发送状态：正在启动
+        self._emit_status("starting", "正在启动...")
+
         self._initialize_connection()
         self._capture_loop()
 
+        # 循环结束后发送状态
+        if not self.force_exit:
+            self._emit_status("stopped", "已断开")
+
     def stop_work(self, force_exit=False):
-        """停止工作
-        Args:
-            force_exit: 如果为 True，表示程序即将关闭，跳过耗时的资源释放
-        """
+        """停止工作"""
         self.running = False
         self.force_exit = force_exit
 
@@ -54,10 +68,9 @@ class CameraWorker(QObject):
             self.reader = None
 
     def _initialize_connection(self):
-        if not self.config.enabled:
-            return
+        # [修改] 即使 config.enabled 为 False，如果手动调用 start_work 也应该尝试连接
+        # 这里我们假设手动点击连接按钮意味着临时启用
 
-        # 如果已经处于强制退出状态，直接返回，不进行耗时的连接
         if self.force_exit:
             return
 
@@ -85,19 +98,14 @@ class CameraWorker(QObject):
     def _capture_loop(self):
         """主捕获循环"""
         while self.running:
-            # [关键] 每次循环前检查，如果是强制退出，立即中断，不处理任何逻辑
             if self.force_exit:
-                return  # 直接返回，跳过 finally 块中的清理
+                return
 
             loop_start = time.time()
             frame = None
 
             try:
-                # 获取帧
-                if not self.config.enabled:
-                    frame = self._generate_simulation_frame(text="DISABLED")
-                    self._smart_sleep(200)
-                elif self.simulation_mode or self.reader is None:
+                if self.simulation_mode or self.reader is None:
                     frame = self._generate_simulation_frame()
                 else:
                     frame = self.reader.get_frame(timeout=0.1)
@@ -106,21 +114,15 @@ class CameraWorker(QObject):
             except Exception:
                 frame = self._generate_simulation_frame(text="ERROR")
 
-            # 处理帧
             if self.running and not self.force_exit and frame is not None:
                 q_image = self._process_frame(frame)
                 if q_image:
                     self.frame_ready.emit(self.camera_index, q_image)
 
-            # 控制帧率
             elapsed = (time.time() - loop_start) * 1000
             sleep_time = max(1, int(33 - elapsed))
             self._smart_sleep(sleep_time)
 
-        # === 退出循环后的清理 ===
-        # [核心修复]：如果是强制退出 (App关闭)，直接跳过 reader.stop()。
-        # reader.stop() 会调用 cv2.release()，这在断流时可能会卡死 GIL，导致主线程卡死。
-        # 既然进程都要关了，让 OS 去回收 socket 资源即可。
         if not self.force_exit and self.reader:
             try:
                 self.reader.stop()
@@ -128,25 +130,18 @@ class CameraWorker(QObject):
                 print(f"相机 {self.camera_index} 资源释放异常: {e}")
 
     def _smart_sleep(self, ms):
-        """智能切片睡眠"""
         if ms <= 0 or self.force_exit: return
-
-        # 将长睡眠切成小片
         steps = ms // 10
         for _ in range(steps):
-            if not self.running or self.force_exit:
-                return
+            if not self.running or self.force_exit: return
             QThread.msleep(10)
-
         remainder = ms % 10
         if remainder > 0 and self.running and not self.force_exit:
             QThread.msleep(remainder)
 
     def _process_frame(self, frame_bgr: np.ndarray) -> Optional[QImage]:
         try:
-            # 再次检查，防止处理时退出
             if self.force_exit: return None
-
             frame_resized = cv2.resize(frame_bgr, self.display_size)
             frame_rgb = cv2.cvtColor(frame_resized, cv2.COLOR_BGR2RGB)
             h, w, ch = frame_rgb.shape
@@ -160,18 +155,14 @@ class CameraWorker(QObject):
         w, h = self.display_size
         color = self.config.simulation_color
         frame = np.full((h, w, 3), color, dtype=np.uint8)
-
         noise = np.random.randint(0, 20, (h, w, 3), dtype=np.uint8)
         frame = cv2.add(frame, noise)
-
         t = time.time()
         cx = int(w / 2 + np.sin(t) * 50)
         cy = int(h / 2 + np.cos(t) * 30)
         cv2.circle(frame, (cx, cy), 30, (255, 255, 255), -1)
-
         display_text = text if text else ("SIMULATION" if self.simulation_mode else "Connecting...")
-        cv2.putText(frame, display_text, (20, 40), cv2.FONT_HERSHEY_SIMPLEX,
-                    1.0, (255, 255, 255), 2)
+        cv2.putText(frame, display_text, (20, 40), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (255, 255, 255), 2)
         return frame
 
     def _emit_status(self, status_code, message):
@@ -184,18 +175,12 @@ class CameraWorker(QObject):
 
 
 class VideoService(QObject):
-    """
-    视频服务管理类
-    """
-
     def __init__(self):
         super().__init__()
         self.logger = get_logging_service()
         self.camera_configs = config_manager.get_camera_configs()
-
         self.threads: Dict[int, QThread] = {}
         self.workers: Dict[int, CameraWorker] = {}
-
         self._initialize_workers()
 
     def _initialize_workers(self):
@@ -203,45 +188,50 @@ class VideoService(QObject):
             thread = QThread()
             worker = CameraWorker(i, config)
             worker.moveToThread(thread)
-            thread.started.connect(worker.start_work)
+
+            # [修改] 只有配置为 enabled 的相机才自动启动
+            if config.enabled:
+                thread.started.connect(worker.start_work)
+
+            # 即使不自动启动，也要保持 connect 以便后续手动启动
+            # 注意：worker.start_requested 已经连接到了 start_work
 
             self.threads[i] = thread
             self.workers[i] = worker
-
             thread.start()
-            self.logger.info(f"相机线程 {i} 已启动", LogCategory.VIDEO)
+            self.logger.info(f"相机线程 {i} 已就绪", LogCategory.VIDEO)
 
     def get_worker(self, camera_index: int) -> Optional[CameraWorker]:
         return self.workers.get(camera_index)
+
+    def start_camera(self, index: int):
+        """[新增] 手动启动指定相机"""
+        if index in self.workers:
+            # 通过信号跨线程调用
+            self.workers[index].start_requested.emit()
+            self.logger.info(f"发送启动指令: 相机 {index}", LogCategory.VIDEO)
+
+    def stop_camera(self, index: int):
+        """[新增] 手动停止指定相机"""
+        if index in self.workers:
+            self.workers[index].stop_work()
+            self.logger.info(f"发送停止指令: 相机 {index}", LogCategory.VIDEO)
 
     def set_simulation_mode(self, enabled: bool):
         for worker in self.workers.values():
             worker.set_simulation_mode(enabled)
 
     def cleanup(self):
-        """[最终优化] 弃船逃生式清理，确保零卡顿退出"""
         self.logger.info("正在停止所有视频线程 (FORCE EXIT)...", LogCategory.VIDEO)
-
-        # 1. 发出弃船指令
-        # 告诉所有 Worker：马上要关机了，手里有什么资源直接扔掉，不要尝试关闭连接，直接 return。
         for worker in self.workers.values():
             worker.stop_work(force_exit=True)
-
-        # 2. 退出线程循环
         for thread in self.threads.values():
             thread.quit()
-
-        # 3. 极速等待 (50ms)
-        # 我们给线程 50ms 的时间去响应 return。
-        # 如果它们正卡在 cv2.VideoCapture() 这种死胡同里出不来，我们就不等了。
-        # Python 进程退出时会强制清理掉它们。
         for i, thread in self.threads.items():
             thread.wait(50)
-
         self.logger.info("视频服务资源清理完成", LogCategory.VIDEO)
 
 
-# 单例模式实例
 _video_service_instance = None
 
 
