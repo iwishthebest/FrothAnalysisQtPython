@@ -282,16 +282,28 @@ class MonitoringPage(QWidget):
                 # 获取所有历史数据
                 for row in history:
                     ts_val = row['timestamp']
-                    # 格式化时间显示
-                    time_str = str(ts_val)
+                    # [修改] 优化时间格式化逻辑，去掉微秒
+                    time_str = ""
                     if isinstance(ts_val, datetime):
                         time_str = ts_val.strftime("%H:%M:%S")
                     elif isinstance(ts_val, str):
                         try:
-                            dt = datetime.strptime(ts_val, "%Y-%m-%d %H:%M:%S")
+                            # 尝试解析带微秒的格式
+                            dt = datetime.strptime(ts_val, "%Y-%m-%d %H:%M:%S.%f")
                             time_str = dt.strftime("%H:%M:%S")
-                        except:
-                            time_str = ts_val.split(' ')[-1]  # 简单取最后一部分
+                        except ValueError:
+                            try:
+                                # 尝试解析不带微秒的格式
+                                dt = datetime.strptime(ts_val, "%Y-%m-%d %H:%M:%S")
+                                time_str = dt.strftime("%H:%M:%S")
+                            except:
+                                # 最后的兜底：分割字符串取时间部分，并去掉小数点后的内容
+                                parts = ts_val.split(' ')
+                                if len(parts) > 1:
+                                    time_part = parts[-1]
+                                    time_str = time_part.split('.')[0]
+                                else:
+                                    time_str = ts_val.split('.')[0]
 
                     f_val = row['feed_grade']
                     c_val = row['conc_grade']

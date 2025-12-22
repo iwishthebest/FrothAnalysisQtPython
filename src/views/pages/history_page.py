@@ -106,7 +106,14 @@ class HistoryPage(QWidget):
         # 设置表格属性
         self.history_table.setAlternatingRowColors(True)
         self.history_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
-        self.history_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+
+        # [修改] 优化列宽设置
+        header = self.history_table.horizontalHeader()
+        # 默认模式：所有列均匀拉伸
+        header.setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        # 第一列(时间)：根据内容自适应宽度，确保时间显示完整
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+
         self.history_table.setSortingEnabled(True)
         self.history_table.setMinimumHeight(400)
 
@@ -184,10 +191,10 @@ class HistoryPage(QWidget):
             # 铅品位
             lead_val = record.get('lead_grade', 0.0)
             lead_item = QTableWidgetItem(f"{lead_val:.2f}")
-            self.set_grade_color(lead_item, lead_val, 50)  # 这里的基准值可能需要根据实际调整
+            self.set_grade_color(lead_item, lead_val, 50)
             self.history_table.setItem(row, 1, lead_item)
 
-            # 锌品位 (数据库暂时没有，用 -- 显示)
+            # 锌品位
             zinc_val = record.get('zinc_grade', 0.0)
             zinc_item = QTableWidgetItem(f"{zinc_val:.2f}" if zinc_val > 0 else "--")
             self.history_table.setItem(row, 2, zinc_item)
@@ -264,11 +271,11 @@ class HistoryPage(QWidget):
                     data_list.append({
                         'timestamp': ts,
                         # 映射数据库字段到界面字段
-                        'lead_grade': row['conc_grade'] if row['conc_grade'] is not None else 0.0,  # 使用精矿品位
-                        'zinc_grade': 0.0,  # 数据库暂无此字段
+                        'lead_grade': row['conc_grade'] if row['conc_grade'] is not None else 0.0,
+                        'zinc_grade': 0.0,
                         'recovery_rate': row['recovery'] if row['recovery'] is not None else 0.0,
-                        'water_level': 0.0,  # 数据库暂无此字段
-                        'dosing_rate': 0.0,  # 数据库暂无此字段
+                        'water_level': 0.0,
+                        'dosing_rate': 0.0,
                         'foam_thickness': 0.0,
                         'status': '正常'
                     })
@@ -290,10 +297,6 @@ class HistoryPage(QWidget):
                 return
 
             filename = f"history_export_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
-            # 实际上这里应该弹出文件保存对话框
-            # path, _ = QFileDialog.getSaveFileName(self, "导出数据", filename, "CSV Files (*.csv)")
-            # if path: ...
-
             # 模拟导出
             # self.history_data.to_csv(filename, index=False, encoding='utf-8-sig')
             print(f"数据已导出到: {filename}")
