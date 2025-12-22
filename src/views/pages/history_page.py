@@ -267,8 +267,8 @@ class HistoryPage(QWidget):
 
                     item = {
                         'timestamp': ts,
-                        'lead_grade': row['feed_grade'],  # 注意：此处映射需根据实际需求调整，DB中feed/conc可能对应不同
-                        'zinc_grade': 0.0,  # 数据库若无此字段则置0
+                        'feed_grade': row['feed_grade'],  # 注意：此处映射需根据实际需求调整，DB中feed/conc可能对应不同
+                        'conc_grade': row['conc_grade'],  # 数据库若无此字段则置0
                         'recovery_rate': row['recovery']
                     }
 
