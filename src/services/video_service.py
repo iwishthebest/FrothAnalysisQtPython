@@ -1,6 +1,7 @@
 import cv2
 import numpy as np
 import time
+import threading
 from typing import Optional, List, Dict, Any
 from PySide6.QtCore import QObject, QThread, Signal, Qt, QMutex
 from PySide6.QtGui import QImage
@@ -24,6 +25,7 @@ class CameraWorker(QObject):
         self.camera_index = camera_index
         self.config = config
         self.running = False
+        self.paused = False  # [新增] 暂停标志
         self.force_exit = False
         self.simulation_mode = False
         self.reader: Optional[RTSPStreamReader] = None
@@ -35,6 +37,7 @@ class CameraWorker(QObject):
         """线程启动入口"""
         if self.running: return
         self.running = True
+        self.paused = False  # [修改] 每次启动重置暂停状态
         self.force_exit = False
         self.logger = get_logging_service()
 
@@ -46,6 +49,12 @@ class CameraWorker(QObject):
         """停止工作"""
         self.running = False
         self.force_exit = force_exit
+
+    def set_paused(self, paused: bool):
+        """[新增] 设置暂停状态"""
+        self.paused = paused
+        state = "暂停" if paused else "恢复"
+        # self.logger.info(f"相机 {self.camera_index} 已{state}", LogCategory.VIDEO)
 
     def set_simulation_mode(self, enabled: bool):
         self.simulation_mode = enabled
@@ -81,6 +90,13 @@ class CameraWorker(QObject):
         """主捕获循环"""
         while self.running:
             if self.force_exit: break
+
+            # [新增] 暂停逻辑：如果暂停，仅休眠不处理帧
+            # 这会保持最后一帧在界面上显示 (因为没有新的信号发出)
+            if self.paused:
+                self._smart_sleep(100)
+                continue
+
             loop_start = time.time()
             frame = None
 
@@ -94,7 +110,7 @@ class CameraWorker(QObject):
             except Exception:
                 frame = self._generate_simulation_frame(text="ERROR")
 
-            if self.running and not self.force_exit and frame is not None:
+            if self.running and not self.force_exit and not self.paused and frame is not None:
                 q_image = self._process_frame(frame)
                 if q_image:
                     self.frame_ready.emit(self.camera_index, q_image)
@@ -106,11 +122,8 @@ class CameraWorker(QObject):
         # === 循环结束后的清理 ===
         if not self.force_exit:
             if self.reader:
-                # [修改] 现在 reader.stop() 是非阻塞的，可以直接调用
                 self.reader.stop()
                 self.reader = None
-
-            # 立即通知 UI
             self._emit_status("stopped", "已断开")
 
     def _smart_sleep(self, ms):
@@ -193,6 +206,12 @@ class VideoService(QObject):
         if index in self.workers:
             self.workers[index].stop_work()
             self.logger.info(f"发送停止指令: 相机 {index}", LogCategory.VIDEO)
+
+    def pause_camera(self, index: int, paused: bool):
+        """[新增] 暂停/恢复指定相机"""
+        if index in self.workers:
+            self.workers[index].set_paused(paused)
+            # self.logger.info(f"发送暂停指令: 相机 {index} -> {paused}", LogCategory.VIDEO)
 
     def set_simulation_mode(self, enabled: bool):
         for worker in self.workers.values():
