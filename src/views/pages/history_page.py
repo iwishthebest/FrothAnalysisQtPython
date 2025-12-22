@@ -18,29 +18,30 @@ class HistoryPage(QWidget):
     # 依据 resources/tags/tagList.csv 整理
     REAGENT_COLUMNS = [
         # --- 铅快粗工序 (Rougher) ---
-        ('YJ.yj_qkc_5#you:actualflow', '铅快粗\n2#油'),
         ('YJ.yj_qkc_dinghuangyao1:actualflow', '铅快粗\n丁黄药1'),
         ('YJ.yj_qkc_dinghuangyao2:actualflow', '铅快粗\n丁黄药2'),
-        ('YJ.yj_qkc_shihui:actualflow', '铅快粗\n石灰'),
         ('YJ.yj_qkc_yiliudan1:actualflow', '铅快粗\n乙硫氮1'),
         ('YJ.yj_qkc_yiliudan2:actualflow', '铅快粗\n乙硫氮2'),
+        ('YJ.yj_qkc_shihui:actualflow', '铅快粗\n石灰'),
+        ('YJ.yj_qkc_5#you:actualflow', '铅快粗\n2#油'),
 
         # --- 铅快精一工序 (Cleaner 1) ---
         ('YJ.yj_qkj1_dinghuangyao:actualflow', '铅快精一\n丁黄药'),
-        ('YJ.yj_qkj1_shihui:actualflow', '铅快精一\n石灰'),
         ('YJ.yj_qkj1_yiliudan:actualflow', '铅快精一\n乙硫氮'),
+        ('YJ.yj_qkj1_shihui:actualflow', '铅快精一\n石灰'),
 
         # --- 铅快精二工序 (Cleaner 2) ---
         ('YJ.yj_qkj2_yiliudan:actualflow', '铅快精二\n乙硫氮'),
         ('YJ.yj_qkj2_shihui:actualflow', '铅快精二\n石灰'),
-        ('YJ.yj_qkj2_dinghuangyao:actualflow', '铅快精二\n硫酸铜'),  # tagList描述为硫酸铜
+        ('YJ.yj_qkj2_dinghuangyao:actualflow', '铅快精二\n丁黄药'),  # tagList描述为硫酸铜
 
         # --- 铅快精三工序 (Cleaner 3) ---
+        ('YJ.yj_qkj3_dinghuangyao:actualflow', '铅快精三\n丁黄药'),
+        ('YJ.yj_qkj3_yiliudan:actualflow', '铅快精三\n乙硫氮'),
         ('YJ.yj_qkj3_ds1:actualflow', '铅快精三\nDS1'),
         ('YJ.yj_qkj3_ds2:actualflow', '铅快精三\nDS2'),
-        ('YJ.yj_qkj3_dinghuangyao:actualflow', '铅快精三\n丁黄药'),
         ('YJ.yj_qkj3_shihui:actualflow', '铅快精三\n石灰'),
-        ('YJ.yj_qkj3_yiliudan:actualflow', '铅快精三\n乙硫氮'),
+
     ]
 
     def __init__(self, parent=None):
@@ -113,7 +114,7 @@ class HistoryPage(QWidget):
 
         # 固定列 + 药剂列
         # 固定列: 时间, 铅品位, 锌品位, 回收率
-        fixed_headers = ["时间", "铅品位\n(%)", "锌品位\n(%)", "回收率\n(%)"]
+        fixed_headers = ["时间", "原矿品位\n(%)", "高铅精矿品位\n(%)", "铅回收率\n(%)"]
         reagent_headers = [name for _, name in self.REAGENT_COLUMNS]
         # 结尾列: 状态 (可按需添加液位等)
         end_headers = ["状态"]
@@ -195,14 +196,18 @@ class HistoryPage(QWidget):
             self.history_table.setItem(row, 0, QTableWidgetItem(time_str))
 
             # 2. 核心指标
-            lead_val = record.get('lead_grade', 0.0)
-            lead_item = QTableWidgetItem(f"{lead_val:.2f}")
-            self.set_grade_color(lead_item, lead_val, 50)  # 假设50是基准
-            self.history_table.setItem(row, 1, lead_item)
+            # 入矿品位
+            feed_grade_val = record.get('feed_grade', 0.0)
+            self.history_table.setItem(row, 2,
+                                       QTableWidgetItem(f"{feed_grade_val:.2f}" if feed_grade_val > 0 else "--"))
 
-            zinc_val = record.get('zinc_grade', 0.0)
-            self.history_table.setItem(row, 2, QTableWidgetItem(f"{zinc_val:.2f}" if zinc_val > 0 else "--"))
+            # 高铅精矿品位
+            conc_grade_val = record.get('conc_grade', 0.0)
+            conc_grade_item = QTableWidgetItem(f"{conc_grade_val:.2f}")
+            self.set_grade_color(conc_grade_item, conc_grade_val, 50)  # 假设50是基准
+            self.history_table.setItem(row, 1, conc_grade_item)
 
+            # 铅回收率
             rec_val = record.get('recovery_rate', 0.0)
             rec_item = QTableWidgetItem(f"{rec_val:.2f}")
             self.set_grade_color(rec_item, rec_val, 85)  # 假设85是基准
