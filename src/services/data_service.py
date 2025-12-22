@@ -41,7 +41,6 @@ class DataService(BaseService):
 
         # [核心] 定义数据库列名与OPC标签的映射关系
         # 键为数据库列名(简化)，值为OPC完整标签名
-        # 依据 src/views/pages/history_page.py 和 image_14ceb0.png
         self.reagent_mapping = {
             # --- 铅快粗工序 (Rougher) ---
             'qkc_dinghuangyao1': 'YJ.yj_qkc_dinghuangyao1:actualflow',
@@ -115,26 +114,44 @@ class DataService(BaseService):
         return headers
 
     def _init_database(self) -> None:
-        """初始化数据库结构 - 混合存储 (列存储 + JSON)"""
-        # 构建动态列定义 SQL
-        reagent_columns_sql = ""
-        for col_name in self.reagent_mapping.keys():
-            reagent_columns_sql += f",\n                             {col_name} REAL"
+        """初始化数据库结构 - 包含自动迁移逻辑"""
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
 
-        # 注意：此处保留了 raw_data JSON 字段
-        create_table_sql = f'''
+            # 1. 创建基础表结构（如果不存在）
+            cursor.execute('''
                          CREATE TABLE IF NOT EXISTS process_history
                          (
                              id INTEGER PRIMARY KEY AUTOINCREMENT,
                              timestamp DATETIME NOT NULL,
                              feed_grade REAL,
                              conc_grade REAL,
-                             recovery REAL{reagent_columns_sql},
+                             recovery REAL,
                              raw_data JSON
                          )
-                         '''
-        with sqlite3.connect(self.db_path) as conn:
-            conn.execute(create_table_sql)
+                         ''')
+
+            # 2. [关键修复] 获取当前表的所有列名
+            cursor.execute("PRAGMA table_info(process_history)")
+            existing_columns = {row[1] for row in cursor.fetchall()}
+
+            # 3. 检查缺失的药剂列并动态添加 (ALTER TABLE)
+            for col_name in self.reagent_mapping.keys():
+                if col_name not in existing_columns:
+                    try:
+                        print(f"Warning: 检测到缺失列 '{col_name}'，正在自动添加...")
+                        cursor.execute(f"ALTER TABLE process_history ADD COLUMN {col_name} REAL")
+                    except Exception as e:
+                        print(f"Error: 添加列 {col_name} 失败: {e}")
+
+            # 4. 再次确保 raw_data 存在
+            if 'raw_data' not in existing_columns:
+                try:
+                    print("Warning: 检测到缺失列 'raw_data'，正在自动添加...")
+                    cursor.execute("ALTER TABLE process_history ADD COLUMN raw_data JSON")
+                except Exception as e:
+                    print(f"Error: 添加 raw_data 列失败: {e}")
+
             conn.commit()
 
     def record_data(self, data: Dict[str, Any]) -> None:
@@ -181,7 +198,7 @@ class DataService(BaseService):
             print(f"数据保存失败: {e}")
 
     def _save_to_sqlite(self, timestamp, flat_data: Dict[str, Any]):
-        """存入数据库 (同时保存展平列和原始 JSON)"""
+        """存入数据库 (展平列 + JSON)"""
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.cursor()
 
@@ -205,12 +222,12 @@ class DataService(BaseService):
             except:
                 pass
 
-            # 2. 准备 SQL 语句和参数
+            # 2. 准备基础数据
             columns = ['timestamp', 'feed_grade', 'conc_grade', 'recovery']
             values = [timestamp, f, c, rec]
             placeholders = ['?', '?', '?', '?']
 
-            # 3. 动态添加药剂列
+            # 3. 动态添加药剂列数据
             for col_name, tag_name in self.reagent_mapping.items():
                 columns.append(col_name)
                 values.append(get_clean(tag_name))
@@ -231,7 +248,7 @@ class DataService(BaseService):
             conn.commit()
 
     def _save_to_csv(self, timestamp, flat_data: Dict[str, Any]):
-        """存入 CSV (保持不变，CSV结构通常包含所有原始标签更灵活)"""
+        """存入 CSV (保持不变)"""
         filename = f"{timestamp.strftime('%Y%m%d')}_process_data.csv"
         filepath = self.csv_dir / filename
         file_exists = filepath.exists()
@@ -257,15 +274,14 @@ class DataService(BaseService):
             return self._cache.copy()
 
     def get_historical_data(self, start_time: datetime, end_time: datetime) -> List[Dict[str, Any]]:
-        """查询历史数据 (返回字典列表)"""
+        """查询历史数据 (包含所有列)"""
         with sqlite3.connect(self.db_path) as conn:
             conn.row_factory = sqlite3.Row
             cursor = conn.cursor()
 
-            # 动态构建查询列，包含 raw_data
+            # 动态构建查询字段，包含所有药剂列和 raw_data
             reagent_cols = ", ".join(self.reagent_mapping.keys())
 
-            # 构建查询 SQL，包含核心指标、所有药剂列和 raw_data
             sql = f'''
                SELECT timestamp, feed_grade, conc_grade, recovery, {reagent_cols}, raw_data
                FROM process_history
