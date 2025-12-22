@@ -109,10 +109,19 @@ class HistoryPage(QWidget):
 
         # [修改] 优化列宽设置
         header = self.history_table.horizontalHeader()
-        # 默认模式：所有列均匀拉伸
-        header.setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
-        # 第一列(时间)：根据内容自适应宽度，确保时间显示完整
-        header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+
+        # 1. 设置所有列为"ResizeToContents"模式
+        # 这样列宽会根据内容自动撑开，如果总宽度超过窗口，会自动出现横向滚动条
+        header.setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
+
+        # 2. 设置最小列宽，防止表头文字显示太挤
+        header.setMinimumSectionSize(100)
+
+        # 3. (可选) 如果希望最后一列填充剩余空白（如果有的话），可以取消注释下面这行
+        # header.setStretchLastSection(True)
+
+        # 确保滚动条策略是自动（默认就是自动，显式设置一下更保险）
+        self.history_table.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
 
         self.history_table.setSortingEnabled(True)
         self.history_table.setMinimumHeight(400)
@@ -184,7 +193,29 @@ class HistoryPage(QWidget):
         for row, (_, record) in enumerate(sorted_data.iterrows()):
             # 时间
             ts = record['timestamp']
-            time_str = ts.strftime('%Y-%m-%d %H:%M') if isinstance(ts, datetime) else str(ts)
+            # [修改] 优化时间格式化逻辑，去掉微秒
+            time_str = ""
+            if isinstance(ts, datetime):
+                time_str = ts.strftime("%H:%M:%S")
+            elif isinstance(ts, str):
+                try:
+                    # 尝试解析带微秒的格式
+                    dt = datetime.strptime(ts, "%Y-%m-%d %H:%M:%S.%f")
+                    time_str = dt.strftime("%H:%M:%S")
+                except ValueError:
+                    try:
+                        # 尝试解析不带微秒的格式
+                        dt = datetime.strptime(ts, "%Y-%m-%d %H:%M:%S")
+                        time_str = dt.strftime("%H:%M:%S")
+                    except:
+                        # 最后的兜底：分割字符串取时间部分，并去掉小数点后的内容
+                        parts = ts.split(' ')
+                        if len(parts) > 1:
+                            time_part = parts[-1]
+                            time_str = time_part.split('.')[0]
+                        else:
+                            time_str = ts.split('.')[0]
+
             time_item = QTableWidgetItem(time_str)
             self.history_table.setItem(row, 0, time_item)
 
