@@ -14,34 +14,33 @@ from src.services.data_service import get_data_service
 class HistoryPage(QWidget):
     """历史数据页面 - 显示查询和分析历史数据"""
 
-    # 定义药剂标签映射 (Tag -> 显示名称)
-    # 依据 resources/tags/tagList.csv 整理
+    # 定义药剂列映射 (数据库列名 -> 显示名称)
+    # 对应 DataService.reagent_mapping 中的键
     REAGENT_COLUMNS = [
         # --- 铅快粗工序 (Rougher) ---
-        ('YJ.yj_qkc_dinghuangyao1:actualflow', '铅快粗\n丁黄药1'),
-        ('YJ.yj_qkc_dinghuangyao2:actualflow', '铅快粗\n丁黄药2'),
-        ('YJ.yj_qkc_yiliudan1:actualflow', '铅快粗\n乙硫氮1'),
-        ('YJ.yj_qkc_yiliudan2:actualflow', '铅快粗\n乙硫氮2'),
-        ('YJ.yj_qkc_shihui:actualflow', '铅快粗\n石灰'),
-        ('YJ.yj_qkc_5#you:actualflow', '铅快粗\n2#油'),
+        ('qkc_dinghuangyao1', '铅快粗\n丁黄药1'),
+        ('qkc_dinghuangyao2', '铅快粗\n丁黄药2'),
+        ('qkc_yiliudan1', '铅快粗\n乙硫氮1'),
+        ('qkc_yiliudan2', '铅快粗\n乙硫氮2'),
+        ('qkc_shihui', '铅快粗\n石灰'),
+        ('qkc_5_you', '铅快粗\n2#油'),
 
         # --- 铅快精一工序 (Cleaner 1) ---
-        ('YJ.yj_qkj1_dinghuangyao:actualflow', '铅快精一\n丁黄药'),
-        ('YJ.yj_qkj1_yiliudan:actualflow', '铅快精一\n乙硫氮'),
-        ('YJ.yj_qkj1_shihui:actualflow', '铅快精一\n石灰'),
+        ('qkj1_dinghuangyao', '铅快精一\n丁黄药'),
+        ('qkj1_yiliudan', '铅快精一\n乙硫氮'),
+        ('qkj1_shihui', '铅快精一\n石灰'),
 
         # --- 铅快精二工序 (Cleaner 2) ---
-        ('YJ.yj_qkj2_yiliudan:actualflow', '铅快精二\n乙硫氮'),
-        ('YJ.yj_qkj2_shihui:actualflow', '铅快精二\n石灰'),
-        ('YJ.yj_qkj2_dinghuangyao:actualflow', '铅快精二\n丁黄药'),  # tagList描述为硫酸铜
+        ('qkj2_yiliudan', '铅快精二\n乙硫氮'),
+        ('qkj2_shihui', '铅快精二\n石灰'),
+        ('qkj2_dinghuangyao', '铅快精二\n丁黄药'),
 
         # --- 铅快精三工序 (Cleaner 3) ---
-        ('YJ.yj_qkj3_dinghuangyao:actualflow', '铅快精三\n丁黄药'),
-        ('YJ.yj_qkj3_yiliudan:actualflow', '铅快精三\n乙硫氮'),
-        ('YJ.yj_qkj3_ds1:actualflow', '铅快精三\nDS1'),
-        ('YJ.yj_qkj3_ds2:actualflow', '铅快精三\nDS2'),
-        ('YJ.yj_qkj3_shihui:actualflow', '铅快精三\n石灰'),
-
+        ('qkj3_dinghuangyao', '铅快精三\n丁黄药'),
+        ('qkj3_yiliudan', '铅快精三\n乙硫氮'),
+        ('qkj3_ds1', '铅快精三\nDS1'),
+        ('qkj3_ds2', '铅快精三\nDS2'),
+        ('qkj3_shihui', '铅快精三\n石灰'),
     ]
 
     def __init__(self, parent=None):
@@ -116,7 +115,7 @@ class HistoryPage(QWidget):
         # 固定列: 时间, 铅品位, 锌品位, 回收率
         fixed_headers = ["时间", "原矿品位\n(%)", "高铅精矿品位\n(%)", "铅回收率\n(%)"]
         reagent_headers = [name for _, name in self.REAGENT_COLUMNS]
-        # 结尾列: 状态 (可按需添加液位等)
+        # 结尾列: 状态
         end_headers = ["状态"]
 
         all_headers = fixed_headers + reagent_headers + end_headers
@@ -192,31 +191,31 @@ class HistoryPage(QWidget):
         for row, (_, record) in enumerate(sorted_data.iterrows()):
             # 1. 时间
             ts = record['timestamp']
-            time_str = ts.strftime("%H:%M:%S") if isinstance(ts, datetime) else str(ts)
+            time_str = ts.strftime("%Y-%m-%d %H:%M:%S") if isinstance(ts, datetime) else str(ts)
             self.history_table.setItem(row, 0, QTableWidgetItem(time_str))
 
             # 2. 核心指标
             # 入矿品位
             feed_grade_val = record.get('feed_grade', 0.0)
-            feed_grade_item = QTableWidgetItem(f"{feed_grade_val:.2f}" if feed_grade_val > 0 else "--")
+            feed_grade_item = QTableWidgetItem(f"{feed_grade_val:.2f}" if feed_grade_val is not None else "--")
             self.history_table.setItem(row, 1, feed_grade_item)
 
             # 高铅精矿品位
             conc_grade_val = record.get('conc_grade', 0.0)
-            conc_grade_item = QTableWidgetItem(f"{conc_grade_val:.2f}" if conc_grade_val > 0 else "--")
+            conc_grade_item = QTableWidgetItem(f"{conc_grade_val:.2f}" if conc_grade_val is not None else "--")
             self.set_grade_color(conc_grade_item, conc_grade_val, 50)  # 假设50是基准
             self.history_table.setItem(row, 2, conc_grade_item)
 
             # 铅回收率
             rec_val = record.get('recovery_rate', 0.0)
-            rec_item = QTableWidgetItem(f"{rec_val:.2f}" if rec_val > 0 else "--")
+            rec_item = QTableWidgetItem(f"{rec_val:.2f}" if rec_val is not None else "--")
             self.set_grade_color(rec_item, rec_val, 85)  # 假设85是基准
             self.history_table.setItem(row, 3, rec_item)
 
             # 3. 动态药剂列 (从第4列开始)
             col_idx = 4
-            for tag_key, _ in self.REAGENT_COLUMNS:
-                val = record.get(tag_key)  # 获取DataFrame中对应的药剂列
+            for db_key, _ in self.REAGENT_COLUMNS:
+                val = record.get(db_key)  # 直接使用数据库列名获取数据
                 text = f"{val:.1f}" if val is not None and val != 0 else "--"
                 item = QTableWidgetItem(text)
                 if val is not None and val > 0:
@@ -225,11 +224,13 @@ class HistoryPage(QWidget):
                 col_idx += 1
 
             # 4. 状态 (最后一列)
-            status_str = "正常"  # 简化逻辑
+            status_str = "正常"
             self.history_table.setItem(row, col_idx, QTableWidgetItem(status_str))
 
     def set_grade_color(self, item, value, target):
         """设置品位颜色"""
+        if value is None:
+            return
         if value >= target + 2:
             item.setBackground(QColor(200, 255, 200))  # 优
         elif value < target - 5:
@@ -243,19 +244,23 @@ class HistoryPage(QWidget):
             start_dt = datetime.combine(start_qdate.toPython(), time.min)
             end_dt = datetime.combine(end_qdate.toPython(), time.max)
 
-            # 获取数据库原始数据
+            # 获取数据库数据 (get_historical_data 已包含所有列)
             db_results = self.data_service.get_historical_data(start_dt, end_dt)
 
             if not db_results:
                 self.history_data = pd.DataFrame()
-                QMessageBox.information(self, "提示", "该时间段内无数据记录")
+                if self.sender() == self.query_btn:  # 只有手动点击按钮才提示
+                    QMessageBox.information(self, "提示", "该时间段内无数据记录")
             else:
                 parsed_rows = []
                 for row in db_results:
-                    # 基础信息
+                    # row 是 sqlite3.Row 对象 (类似字典)
+
+                    # 1. 基础信息解析
                     ts_str = row['timestamp']
                     try:
                         if isinstance(ts_str, str):
+                            # 处理可能包含的毫秒
                             if '.' in ts_str:
                                 ts = datetime.strptime(ts_str, "%Y-%m-%d %H:%M:%S.%f")
                             else:
@@ -267,29 +272,21 @@ class HistoryPage(QWidget):
 
                     item = {
                         'timestamp': ts,
-                        'feed_grade': row['feed_grade'],  # 注意：此处映射需根据实际需求调整，DB中feed/conc可能对应不同
-                        'conc_grade': row['conc_grade'],  # 数据库若无此字段则置0
+                        'feed_grade': row['feed_grade'],
+                        'conc_grade': row['conc_grade'],
                         'recovery_rate': row['recovery']
                     }
 
-                    # 解析 raw_data JSON 获取具体药剂值
-                    raw_json = row['raw_data']
-                    if raw_json:
+                    # 2. 药剂数据解析 (直接读取数据库列)
+                    for db_key, _ in self.REAGENT_COLUMNS:
+                        # 尝试从 row 中获取列数据
+                        # DataService 保证了这些列存在 (通过动态 ALTER TABLE)
                         try:
-                            raw_data = json.loads(raw_json)
-                            # 遍历预定义的药剂列，从raw_data中提取
-                            for tag_key, _ in self.REAGENT_COLUMNS:
-                                # raw_data 结构通常是 {Tag: {value: ..., quality: ...}} 或 {Tag: value}
-                                # 根据 data_service.py 的 record_data，它是扁平化的 {Tag: Value} (float or None)
-                                val = raw_data.get(tag_key)
-                                item[tag_key] = val if val is not None else 0.0
-                        except Exception as e:
-                            # JSON解析失败，所有药剂置0
-                            for tag_key, _ in self.REAGENT_COLUMNS:
-                                item[tag_key] = 0.0
-                    else:
-                        for tag_key, _ in self.REAGENT_COLUMNS:
-                            item[tag_key] = 0.0
+                            val = row[db_key]
+                            item[db_key] = val if val is not None else 0.0
+                        except (IndexError, KeyError):
+                            # 如果列不存在 (可能是旧数据库文件未迁移完全)，则置0
+                            item[db_key] = 0.0
 
                     parsed_rows.append(item)
 
@@ -315,12 +312,18 @@ class HistoryPage(QWidget):
         avg_rec = self.history_data['recovery_rate'].mean()
         count = len(self.history_data)
 
-        # 查找并更新Label (需要findChild配合ObjectName)
-        # 这里简化处理，实际需确保 create_stat_item 设置了 objectName
-        self.findChild(QLabel, "stat_平均铅品位").setText(f"{avg_lead:.2f}")
-        self.findChild(QLabel, "stat_最高铅品位").setText(f"{max_lead:.2f}")
-        self.findChild(QLabel, "stat_平均回收率").setText(f"{avg_rec:.2f}")
-        self.findChild(QLabel, "stat_数据点数").setText(str(count))
+        # 查找并更新Label
+        label = self.findChild(QLabel, "stat_平均铅品位")
+        if label: label.setText(f"{avg_lead:.2f}")
+
+        label = self.findChild(QLabel, "stat_最高铅品位")
+        if label: label.setText(f"{max_lead:.2f}")
+
+        label = self.findChild(QLabel, "stat_平均回收率")
+        if label: label.setText(f"{avg_rec:.2f}")
+
+        label = self.findChild(QLabel, "stat_数据点数")
+        if label: label.setText(str(count))
 
     def on_export_clicked(self):
         """导出数据"""
@@ -332,10 +335,11 @@ class HistoryPage(QWidget):
             filename = f"history_export_{datetime.now().strftime('%Y%m%d%H%M%S')}.csv"
             # 重命名列以便导出更友好的CSV
             export_df = self.history_data.copy()
-            rename_map = {tag: name.replace('\n', '') for tag, name in self.REAGENT_COLUMNS}
+            rename_map = {db_key: name.replace('\n', '') for db_key, name in self.REAGENT_COLUMNS}
             rename_map.update({
                 'timestamp': '时间',
-                'lead_grade': '铅品位',
+                'feed_grade': '原矿品位',
+                'conc_grade': '精矿品位',
                 'recovery_rate': '回收率'
             })
             export_df.rename(columns=rename_map, inplace=True)
