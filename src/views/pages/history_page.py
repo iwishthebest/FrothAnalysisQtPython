@@ -198,18 +198,19 @@ class HistoryPage(QWidget):
             # 入矿品位
             feed_grade_val = record.get('feed_grade', 0.0)
             feed_grade_item = QTableWidgetItem(f"{feed_grade_val:.2f}" if feed_grade_val is not None else "--")
+            self.set_grade_color(feed_grade_item, feed_grade_val, 3.5, high=0.5, low=0.5)  # 假设50是基准
             self.history_table.setItem(row, 1, feed_grade_item)
 
             # 高铅精矿品位
             conc_grade_val = record.get('conc_grade', 0.0)
             conc_grade_item = QTableWidgetItem(f"{conc_grade_val:.2f}" if conc_grade_val is not None else "--")
-            self.set_grade_color(conc_grade_item, conc_grade_val, 50)  # 假设50是基准
+            self.set_grade_color(conc_grade_item, conc_grade_val, 50, high=5, low=2)  # 假设50是基准
             self.history_table.setItem(row, 2, conc_grade_item)
 
             # 铅回收率
             rec_val = record.get('recovery_rate', 0.0)
             rec_item = QTableWidgetItem(f"{rec_val:.2f}" if rec_val is not None else "--")
-            self.set_grade_color(rec_item, rec_val, 85)  # 假设85是基准
+            self.set_grade_color(rec_item, rec_val, 80, high=5, low=2)  # 假设85是基准
             self.history_table.setItem(row, 3, rec_item)
 
             # 3. 动态药剂列 (从第4列开始)
@@ -227,13 +228,13 @@ class HistoryPage(QWidget):
             status_str = "正常"
             self.history_table.setItem(row, col_idx, QTableWidgetItem(status_str))
 
-    def set_grade_color(self, item, value, target):
+    def set_grade_color(self, item, value, target, high=2.0, low=5.0):
         """设置品位颜色"""
         if value is None:
             return
-        if value >= target + 2:
+        if value >= target + high:
             item.setBackground(QColor(200, 255, 200))  # 优
-        elif value < target - 5:
+        elif value < target - low:
             item.setBackground(QColor(255, 220, 220))  # 差
 
     def on_query_clicked(self):
