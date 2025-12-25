@@ -8,15 +8,14 @@ from PySide6.QtCore import Qt, Signal, QRectF, QTimer, QPointF, Slot
 from PySide6.QtGui import (QPainter, QColor, QPen, QBrush, QFont,
                            QPainterPath, QLinearGradient, QPolygonF)
 
-# [新增] 引入服务以获取数据映射和信号
 from src.services.opc_service import get_opc_service
 from src.services.data_service import get_data_service
 
 
 class TankVisualizationWidget(QWidget):
     """
-    浮选槽可视化组件 - 工业HMI风格 (OPC数据驱动版)
-    包含：动态搅拌动画、泡沫层仿真、实体管道连接、实时药剂流量监测
+    浮选槽可视化组件 - 1080p 完美适配版
+    特性：245px窄卡片、美化药剂列表、全屏无滚动
     """
 
     # 信号定义
@@ -52,8 +51,8 @@ class TankVisualizationWidget(QWidget):
 
     def setup_ui(self):
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(10, 10, 10, 10)
-        layout.setSpacing(10)
+        layout.setContentsMargins(5, 5, 5, 5)  # 极窄边距
+        layout.setSpacing(5)
 
         # 1. 顶部标题
         title_container = QWidget()
@@ -61,7 +60,7 @@ class TankVisualizationWidget(QWidget):
         title_layout.setContentsMargins(10, 0, 10, 0)
 
         title_label = QLabel("浮选槽串联监控 (正浮选流程)")
-        title_label.setFont(QFont("Microsoft YaHei", 16, QFont.Weight.Bold))
+        title_label.setFont(QFont("Microsoft YaHei", 14, QFont.Weight.Bold))
         title_label.setStyleSheet("color: #2c3e50; letter-spacing: 1px;")
 
         # 流程说明图例
@@ -92,8 +91,8 @@ class TankVisualizationWidget(QWidget):
         # 内容容器：负责水平排列
         tanks_container = QWidget()
         self.tanks_layout = QHBoxLayout(tanks_container)
-        self.tanks_layout.setContentsMargins(20, 0, 20, 0)
-        self.tanks_layout.setSpacing(0)
+        self.tanks_layout.setContentsMargins(10, 0, 10, 0)
+        self.tanks_layout.setSpacing(0)  # 紧贴
         self.tanks_layout.setAlignment(Qt.AlignmentFlag.AlignHCenter)
 
         scroll_layout.addWidget(tanks_container)
@@ -129,12 +128,11 @@ class TankVisualizationWidget(QWidget):
         indicator.setFixedSize(16, 4)
         indicator.setStyleSheet(f"background-color: {color}; border-radius: 2px;")
         lbl = QLabel(text)
-        lbl.setStyleSheet("color: #7f8c8d; font-size: 12px;")
+        lbl.setStyleSheet("color: #7f8c8d; font-size: 11px;")
         layout.addWidget(indicator)
         layout.addWidget(lbl)
 
     def setup_data_connection(self):
-        """[新增] 自动连接 OPC 数据服务"""
         try:
             opc_service = get_opc_service()
             worker = opc_service.get_worker()
@@ -145,26 +143,25 @@ class TankVisualizationWidget(QWidget):
 
     @Slot(dict)
     def update_tank_data(self, data):
-        """分发数据给所有子槽体"""
-        # data 是 OPC 服务的完整数据字典 {Tag: {value: ...}, ...}
         for tank in self.tank_widgets:
             tank.update_data(data)
 
 
 class PipeConnectionWidget(QWidget):
-    """连接管道"""
+    """连接管道 - 自适应"""
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setFixedWidth(20)
-        self.setSizePolicy(self.sizePolicy().Policy.Fixed, self.sizePolicy().Policy.Preferred)
+        self.setMinimumWidth(15)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self.setFixedHeight(300)  # 覆盖绘图区域即可
 
     def paintEvent(self, event):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         w, h = self.width(), self.height()
 
-        # 高度对齐
+        # 高度对齐校准
         froth_y = 85
         pulp_y = 195
 
@@ -188,7 +185,7 @@ class PipeConnectionWidget(QWidget):
 
 
 class TankGraphicWidget(QWidget):
-    """槽体图形 - 放大版 + 泡沫层"""
+    """槽体图形"""
 
     def __init__(self, base_color_hex, parent=None):
         super().__init__(parent)
@@ -291,7 +288,7 @@ class TankGraphicWidget(QWidget):
 
 class SingleTankWidget(QFrame):
     """
-    单个槽体卡片 - 垂直布局，四块监测区域
+    单个槽体卡片 - 紧凑型
     """
 
     MAX_REAGENT_COUNT = 6
@@ -301,10 +298,7 @@ class SingleTankWidget(QFrame):
         self.config = config
         self.reagents = reagents
         self.reagent_widgets = {}
-
-        # [新增] 获取数据映射表
         self.data_mapping = get_data_service().reagent_mapping
-
         self.setup_ui()
 
     def setup_ui(self):
@@ -326,7 +320,8 @@ class SingleTankWidget(QFrame):
         shadow.setOffset(0, 3)
         self.setGraphicsEffect(shadow)
 
-        self.setFixedWidth(260)
+        # [调整] 缩窄到 245px，适应 1080p
+        self.setFixedWidth(245)
         self.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Preferred)
 
         main_layout = QVBoxLayout(self)
@@ -390,7 +385,7 @@ class SingleTankWidget(QFrame):
         return frame
 
     def _create_reagent_block(self):
-        """块1: 药剂流量列表"""
+        """块1: 药剂流量列表 (美化版)"""
         frame = self._create_panel_frame()
         layout = QVBoxLayout(frame)
         layout.setContentsMargins(6, 6, 6, 6)
@@ -407,22 +402,26 @@ class SingleTankWidget(QFrame):
 
         for i in range(self.MAX_REAGENT_COUNT):
             if i < len(self.reagents):
-                # key 是数据库中的简写键 (例如 qkc_dinghuangyao1)
                 key, name = self.reagents[i]
 
+                # 名称
                 lbl = QLabel(name)
-                lbl.setStyleSheet("font-size: 12px; color: #555; border:none;")
-                # 获取完整 OPC Tag 作为 ToolTip
+                lbl.setStyleSheet("font-size: 12px; color: #555; font-weight: 500; border:none;")
                 full_tag = self.data_mapping.get(key, key)
                 lbl.setToolTip(full_tag)
 
+                # [美化] 数值显示 (胶囊风格)
                 val_display = QLabel("0.0")
                 val_display.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
                 val_display.setStyleSheet("""
-                    background: #34495e; color: #f1c40f; 
-                    border-radius: 2px;
-                    font-family: 'Consolas'; font-size: 12px; font-weight: bold;
-                    padding: 2px 4px;
+                    background-color: #f0f2f5; 
+                    color: #2c3e50; 
+                    border: 1px solid #dcdfe6;
+                    border-radius: 4px;
+                    font-family: 'Consolas'; 
+                    font-size: 12px; 
+                    font-weight: bold;
+                    padding: 2px 6px;
                 """)
                 self.reagent_widgets[key] = val_display
 
@@ -432,7 +431,7 @@ class SingleTankWidget(QFrame):
                 lbl = QLabel(" ")
                 lbl.setStyleSheet("font-size: 12px; border:none;")
                 val = QLabel(" ")
-                val.setStyleSheet("font-size: 12px; border:none; padding: 2px 4px;")
+                val.setStyleSheet("font-size: 12px; border:none; padding: 2px 6px;")
 
                 items_layout.addWidget(lbl, i, 0)
                 items_layout.addWidget(val, i, 1)
@@ -498,19 +497,21 @@ class SingleTankWidget(QFrame):
         return frame
 
     def update_data(self, data):
-        """
-        更新数据逻辑
-        data: 包含所有 OPC Tag 数据的字典 { 'YJ.xxx': {'value': 123}, ... }
-        """
-        # 更新药剂数据
+        # 液位更新 (兼容逻辑)
+        if 'level' in data:
+            try:
+                val = float(data['level'])
+                self.lbl_level_real.setText(f"{val:.2f}")
+                self.tank_graphic.set_water_level(val / 2.5)
+            except:
+                pass
+
+        # 药剂更新
         for short_key, widget in self.reagent_widgets.items():
-            # 1. 获取完整的 OPC Tag
             full_tag = self.data_mapping.get(short_key)
 
             if full_tag and full_tag in data:
-                # 2. 提取数据
                 tag_data = data[full_tag]
-                # 处理 {value: ...} 结构或直接数值
                 val = tag_data.get('value') if isinstance(tag_data, dict) else tag_data
 
                 try:
@@ -520,13 +521,3 @@ class SingleTankWidget(QFrame):
                         widget.setText("--")
                 except (ValueError, TypeError):
                     widget.setText("ERR")
-
-        # 更新液位 (如果有相关 Tag，目前示例代码中无明确 Level Tag 映射)
-        # 如果需要，可以在 reagent_mapping 中添加液位 Tag，并在 init 中获取
-        if 'level' in data:  # 兼容测试数据
-            try:
-                val = float(data['level'])
-                self.lbl_level_real.setText(f"{val:.2f}")
-                self.tank_graphic.set_water_level(val / 2.5)
-            except:
-                pass
