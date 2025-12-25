@@ -2,7 +2,8 @@ import math
 import random
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QGridLayout,
                                QLabel, QDoubleSpinBox, QComboBox, QLineEdit,
-                               QFrame, QGraphicsDropShadowEffect, QScrollArea)
+                               QFrame, QGraphicsDropShadowEffect, QScrollArea,
+                               QSizePolicy)
 from PySide6.QtCore import Qt, Signal, QRectF, QTimer, QPointF
 from PySide6.QtGui import (QPainter, QColor, QPen, QBrush, QFont,
                            QPainterPath, QLinearGradient, QPolygonF)
@@ -19,20 +20,20 @@ class TankVisualizationWidget(QWidget):
 
     # 药剂配置映射 (Tank ID -> List of (Database Key, Display Name))
     TANK_REAGENTS_CONFIG = {
-        0: [  # 铅快粗槽
+        0: [  # 铅快粗槽 (6种 - 最多)
             ('qkc_dinghuangyao1', '丁黄药1'), ('qkc_dinghuangyao2', '丁黄药2'),
             ('qkc_yiliudan1', '乙硫氮1'), ('qkc_yiliudan2', '乙硫氮2'),
             ('qkc_shihui', '石灰'), ('qkc_5_you', '2#油')
         ],
-        1: [  # 铅精一槽
+        1: [  # 铅精一槽 (3种)
             ('qkj1_dinghuangyao', '丁黄药'), ('qkj1_yiliudan', '乙硫氮'),
             ('qkj1_shihui', '石灰')
         ],
-        2: [  # 铅精二槽
+        2: [  # 铅精二槽 (3种)
             ('qkj2_yiliudan', '乙硫氮'), ('qkj2_shihui', '石灰'),
             ('qkj2_dinghuangyao', '丁黄药')
         ],
-        3: [  # 铅精三槽
+        3: [  # 铅精三槽 (5种)
             ('qkj3_dinghuangyao', '丁黄药'), ('qkj3_yiliudan', '乙硫氮'),
             ('qkj3_ds1', 'DS1'), ('qkj3_ds2', 'DS2'),
             ('qkj3_shihui', '石灰')
@@ -70,7 +71,8 @@ class TankVisualizationWidget(QWidget):
 
         layout.addWidget(title_container)
 
-        # 2. 核心可视化区域 (添加滚动区域以适应垂直高度增加)
+        # 2. 核心可视化区域
+        # 使用 ScrollArea 保证在小屏幕也能查看，但在宽屏下会自动居中
         scroll_area = QScrollArea()
         scroll_area.setWidgetResizable(True)
         scroll_area.setFrameShape(QFrame.Shape.NoFrame)
@@ -79,7 +81,8 @@ class TankVisualizationWidget(QWidget):
         scroll_content = QWidget()
         self.tanks_layout = QHBoxLayout(scroll_content)
         self.tanks_layout.setSpacing(0)
-        self.tanks_layout.setContentsMargins(10, 10, 10, 10)
+        # 减小边距，让卡片更紧凑
+        self.tanks_layout.setContentsMargins(5, 5, 5, 5)
         # 顶部对齐，避免因卡片高度不一致导致的错位
         self.tanks_layout.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignHCenter)
 
@@ -133,7 +136,7 @@ class PipeConnectionWidget(QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setFixedWidth(40)
+        self.setFixedWidth(30)  # 稍微缩短管道长度，使整体更紧凑
         self.setSizePolicy(self.sizePolicy().Policy.Fixed, self.sizePolicy().Policy.Preferred)
 
     def paintEvent(self, event):
@@ -142,8 +145,6 @@ class PipeConnectionWidget(QWidget):
         w, h = self.width(), self.height()
 
         # 调整高度以匹配槽体视觉重心
-        # 这里的绝对坐标可能需要根据 SingleTankWidget 的头部高度微调
-        # 假设头部约40px，槽体约120px，管道大概在 40 + 30 (泡沫) 和 40 + 90 (矿浆)
         froth_y = 70
         pulp_y = 130
 
@@ -160,7 +161,7 @@ class PipeConnectionWidget(QWidget):
     def _draw_arrow(self, painter, x, y, direction, color):
         painter.setBrush(QBrush(QColor(color)))
         painter.setPen(Qt.PenStyle.NoPen)
-        s = 5
+        s = 4
         pts = [QPointF(x, y), QPointF(x - s, y - s), QPointF(x - s, y + s)] if direction == "right" else \
             [QPointF(x, y), QPointF(x + s, y - s), QPointF(x + s, y + s)]
         painter.drawPolygon(pts)
@@ -173,7 +174,7 @@ class TankGraphicWidget(QWidget):
         super().__init__(parent)
         self.base_color = QColor(base_color_hex)
         self.water_level = 0.6
-        self.setMinimumSize(120, 140)
+        self.setMinimumSize(100, 140)  # 稍微调小最小宽度
 
         self.angle = 0
         self.bubbles = []
@@ -206,7 +207,7 @@ class TankGraphicWidget(QWidget):
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         w, h = self.width(), self.height()
 
-        tank_rect = QRectF(15, 10, w - 30, h - 20)
+        tank_rect = QRectF(10, 10, w - 20, h - 20)
         fill_height = tank_rect.height() * self.water_level
         liquid_y = tank_rect.bottom() - fill_height
 
@@ -244,7 +245,7 @@ class TankGraphicWidget(QWidget):
         # 3. 搅拌器
         shaft_x = w / 2
         painter.setPen(QPen(QColor("#555"), 3))
-        painter.drawLine(int(shaft_x), int(tank_rect.top() - 5), int(shaft_x), int(tank_rect.bottom() - 25))
+        painter.drawLine(int(shaft_x), int(tank_rect.top() - 10), int(shaft_x), int(tank_rect.bottom() - 25))
 
         painter.save()
         painter.translate(shaft_x, tank_rect.bottom() - 25)
@@ -252,8 +253,8 @@ class TankGraphicWidget(QWidget):
         painter.rotate(self.angle)
         painter.setPen(QPen(QColor("#333"), 1))
         painter.setBrush(QColor("#7f8c8d"))
-        painter.drawRect(-25, -3, 50, 6)
-        painter.drawRect(-3, -25, 6, 50)
+        painter.drawRect(-20, -3, 40, 6)
+        painter.drawRect(-3, -20, 6, 40)
         painter.restore()
 
 
@@ -261,6 +262,9 @@ class SingleTankWidget(QFrame):
     """
     单个槽体卡片 - 垂直布局，四块监测区域
     """
+
+    # 定义最大药剂显示行数，用于占位对齐
+    MAX_REAGENT_COUNT = 6
 
     def __init__(self, config, reagents, parent=None):
         super().__init__(parent)
@@ -288,20 +292,21 @@ class SingleTankWidget(QFrame):
         shadow.setOffset(0, 3)
         self.setGraphicsEffect(shadow)
 
-        self.setFixedWidth(300)
+        # [调整] 将卡片宽度从 300 缩小到 255，确保四张卡片能横向排开
+        self.setFixedWidth(255)
 
         main_layout = QVBoxLayout(self)
-        main_layout.setContentsMargins(10, 12, 10, 15)
-        main_layout.setSpacing(8)
+        main_layout.setContentsMargins(8, 10, 8, 12)
+        main_layout.setSpacing(6)
 
         # 1. 头部
         header = QHBoxLayout()
         name_lbl = QLabel(self.config["name"])
-        name_lbl.setStyleSheet(f"font-size: 15px; font-weight: bold; color: {self.config['color']};")
+        name_lbl.setStyleSheet(f"font-size: 14px; font-weight: bold; color: {self.config['color']};")
 
         self.status_led = QLabel()
-        self.status_led.setFixedSize(10, 10)
-        self.status_led.setStyleSheet("background-color: #2ecc71; border-radius: 5px;")
+        self.status_led.setFixedSize(8, 8)
+        self.status_led.setStyleSheet("background-color: #2ecc71; border-radius: 4px;")
         self.status_led.setToolTip("运行正常")
 
         header.addWidget(name_lbl)
@@ -317,8 +322,8 @@ class SingleTankWidget(QFrame):
 
         # 3. 监测数据区 (垂直布局)
         monitor_layout = QVBoxLayout()
-        monitor_layout.setSpacing(8)
-        monitor_layout.setContentsMargins(0, 5, 0, 5)
+        monitor_layout.setSpacing(6)
+        monitor_layout.setContentsMargins(0, 2, 0, 2)
 
         # --- 块1: 药剂流量 (列表) ---
         reagent_panel = self._create_reagent_block()
@@ -352,39 +357,54 @@ class SingleTankWidget(QFrame):
         return frame
 
     def _create_reagent_block(self):
-        """块1: 药剂流量列表"""
+        """块1: 药剂流量列表 (强制高度统一)"""
         frame = self._create_panel_frame()
         layout = QVBoxLayout(frame)
-        layout.setContentsMargins(8, 8, 8, 8)
-        layout.setSpacing(4)
+        layout.setContentsMargins(6, 6, 6, 6)
+        layout.setSpacing(2)
 
         title = QLabel("药剂流量 (ml/min)")
-        title.setStyleSheet("font-weight: bold; font-size: 11px; color: #555; border:none;")
+        title.setStyleSheet("font-weight: bold; font-size: 10px; color: #555; border:none;")
         layout.addWidget(title)
 
         # 药剂列表容器 (Grid布局对齐名称和数值)
         items_layout = QGridLayout()
-        items_layout.setVerticalSpacing(4)
-        items_layout.setHorizontalSpacing(10)
+        items_layout.setVerticalSpacing(3)
+        items_layout.setHorizontalSpacing(5)
         items_layout.setColumnStretch(1, 1)  # 数值列拉伸
 
-        for i, (key, name) in enumerate(self.reagents):
-            lbl = QLabel(name)
-            lbl.setStyleSheet("font-size: 11px; color: #666; border:none;")
-            lbl.setToolTip(key)
+        # [关键优化] 强制循环 MAX_REAGENT_COUNT 次
+        # 如果当前槽药剂不足 6 个，填充透明占位符
+        for i in range(self.MAX_REAGENT_COUNT):
+            if i < len(self.reagents):
+                # 渲染真实药剂数据
+                key, name = self.reagents[i]
 
-            val_display = QLabel("0.0")
-            val_display.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-            val_display.setStyleSheet("""
-                background: #34495e; color: #f1c40f; 
-                border-radius: 2px;
-                font-family: 'Consolas'; font-size: 11px; font-weight: bold;
-                padding: 2px 4px;
-            """)
-            self.reagent_widgets[key] = val_display
+                lbl = QLabel(name)
+                lbl.setStyleSheet("font-size: 10px; color: #666; border:none;")
+                lbl.setToolTip(key)
 
-            items_layout.addWidget(lbl, i, 0)
-            items_layout.addWidget(val_display, i, 1)
+                val_display = QLabel("0.0")
+                val_display.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+                val_display.setStyleSheet("""
+                    background: #34495e; color: #f1c40f; 
+                    border-radius: 2px;
+                    font-family: 'Consolas'; font-size: 10px; font-weight: bold;
+                    padding: 1px 4px;
+                """)
+                self.reagent_widgets[key] = val_display
+
+                items_layout.addWidget(lbl, i, 0)
+                items_layout.addWidget(val_display, i, 1)
+            else:
+                # 渲染占位符 (保持高度一致)
+                placeholder_lbl = QLabel(" ")
+                placeholder_lbl.setStyleSheet("font-size: 10px; border:none;")  # 保持相同的字体大小以撑开高度
+                placeholder_val = QLabel(" ")
+                placeholder_val.setStyleSheet("font-size: 10px; border:none; padding: 1px 4px;")
+
+                items_layout.addWidget(placeholder_lbl, i, 0)
+                items_layout.addWidget(placeholder_val, i, 1)
 
         layout.addLayout(items_layout)
         return frame
@@ -393,10 +413,10 @@ class SingleTankWidget(QFrame):
         """块2: 液位监测 (纯显示)"""
         frame = self._create_panel_frame()
         layout = QHBoxLayout(frame)
-        layout.setContentsMargins(10, 8, 10, 8)
+        layout.setContentsMargins(8, 6, 8, 6)
 
         title = QLabel("液位")
-        title.setStyleSheet("font-weight: bold; font-size: 11px; color: #555; border:none;")
+        title.setStyleSheet("font-weight: bold; font-size: 10px; color: #555; border:none;")
 
         # 实时值
         self.lbl_level_real = QLabel("1.20")
@@ -404,7 +424,7 @@ class SingleTankWidget(QFrame):
         self.lbl_level_real.setStyleSheet("""
             background: #34495e; color: #2ecc71; 
             border-radius: 3px; font-family: 'Consolas'; 
-            font-size: 14px; font-weight: bold; padding: 2px 6px;
+            font-size: 13px; font-weight: bold; padding: 2px 6px;
             border:none;
         """)
 
@@ -421,10 +441,10 @@ class SingleTankWidget(QFrame):
         """通用数据块 (空气/水)"""
         frame = self._create_panel_frame()
         layout = QHBoxLayout(frame)
-        layout.setContentsMargins(10, 8, 10, 8)
+        layout.setContentsMargins(8, 6, 8, 6)
 
         title = QLabel(title_text.split("(")[0])  # 只取标题
-        title.setStyleSheet("font-weight: bold; font-size: 11px; color: #555; border:none;")
+        title.setStyleSheet("font-weight: bold; font-size: 10px; color: #555; border:none;")
 
         val_lbl = QLabel(default_val)
         val_lbl.setObjectName(f"val_{obj_name}")
@@ -432,7 +452,7 @@ class SingleTankWidget(QFrame):
         val_lbl.setStyleSheet(f"""
             background: #34495e; color: {value_color};
             border-radius: 3px; font-family: 'Consolas'; 
-            font-size: 14px; font-weight: bold; padding: 2px 6px;
+            font-size: 13px; font-weight: bold; padding: 2px 6px;
             border:none;
         """)
 
