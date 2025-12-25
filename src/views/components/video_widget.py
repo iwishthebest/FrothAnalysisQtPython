@@ -21,7 +21,13 @@ class VideoFrame(QFrame):
         self.config = camera_config
         self.camera_index = camera_config.camera_index
         self.is_paused = False  # 记录当前的暂停状态
-        self.current_image = None  # [新增] 用于缓存当前帧以便抓拍
+        self.current_image = None  # 缓存当前帧以便抓拍
+
+        # [新增] 连续采集相关属性
+        self.is_recording = False
+        self.record_timer = QTimer(self)
+        self.record_timer.timeout.connect(self.save_frame_for_record)
+        self.record_interval = 1000  # 连续采集间隔(ms)
 
         self.setFrameStyle(QFrame.Shape.StyledPanel | QFrame.Shadow.Raised)
         self.setLineWidth(1)
@@ -61,18 +67,26 @@ class VideoFrame(QFrame):
         self.btn_pause.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_MediaPause))
         self.btn_pause.setToolTip("暂停/冻结画面")
         self.btn_pause.setFixedSize(22, 22)
-        self.btn_pause.setCheckable(True)  # 设置为可选中状态
+        self.btn_pause.setCheckable(True)
         self._set_btn_style(self.btn_pause)
 
-        # 3. [新增] 抓拍按钮
+        # 3. 单帧抓拍按钮
         self.btn_capture = QPushButton()
-        # 使用保存图标 (SP_DialogSaveButton) 或 相机图标
         self.btn_capture.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_DialogSaveButton))
-        self.btn_capture.setToolTip("采集当前帧 (Snapshot)")
+        self.btn_capture.setToolTip("单帧抓拍 (Snapshot)")
         self.btn_capture.setFixedSize(22, 22)
         self._set_btn_style(self.btn_capture)
 
-        # 4. 断开按钮
+        # 4. [新增] 连续采集按钮 (Start/Stop)
+        self.btn_record = QPushButton()
+        # 默认显示"电脑/设备"图标代表采集
+        self.btn_record.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_ComputerIcon))
+        self.btn_record.setToolTip("开始连续采集")
+        self.btn_record.setFixedSize(22, 22)
+        self.btn_record.setCheckable(True)  # 设置为开关按钮
+        self._set_btn_style(self.btn_record)
+
+        # 5. 断开按钮
         self.btn_disconnect = QPushButton()
         self.btn_disconnect.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_MediaStop))
         self.btn_disconnect.setToolTip("断开连接")
@@ -81,7 +95,8 @@ class VideoFrame(QFrame):
 
         header_layout.addWidget(self.btn_connect)
         header_layout.addWidget(self.btn_pause)
-        header_layout.addWidget(self.btn_capture)  # 添加到布局
+        header_layout.addWidget(self.btn_capture)
+        header_layout.addWidget(self.btn_record)  # 添加到布局
         header_layout.addWidget(self.btn_disconnect)
 
         # 状态指示灯
@@ -103,15 +118,17 @@ class VideoFrame(QFrame):
             self.video_label.setText("等待信号...")
             self.btn_connect.setEnabled(False)
             self.btn_pause.setEnabled(True)
-            self.btn_capture.setEnabled(True)  # 启用抓拍
+            self.btn_capture.setEnabled(True)
+            self.btn_record.setEnabled(True)
             self.btn_disconnect.setEnabled(True)
         else:
             self.video_label.setText("已禁用 (点击播放连接)")
             self.btn_connect.setEnabled(True)
             self.btn_pause.setEnabled(False)
-            self.btn_capture.setEnabled(False)  # 禁用抓拍
+            self.btn_capture.setEnabled(False)
+            self.btn_record.setEnabled(False)
             self.btn_disconnect.setEnabled(False)
-            self.status_indicator.setStyleSheet("background-color: #7f8c8d; border-radius: 5px;")  # 灰色
+            self.status_indicator.setStyleSheet("background-color: #7f8c8d; border-radius: 5px;")
 
         self.video_label.setScaledContents(True)
 
@@ -123,7 +140,7 @@ class VideoFrame(QFrame):
             QPushButton { background-color: transparent; border: none; border-radius: 3px; }
             QPushButton:hover { background-color: rgba(255, 255, 255, 50); }
             QPushButton:disabled { opacity: 0.3; }
-            QPushButton:checked { background-color: rgba(255, 255, 255, 80); border: 1px solid #bdc3c7;}
+            QPushButton:checked { background-color: rgba(255, 100, 100, 150); border: 1px solid #e74c3c;}
         """)
 
     def _update_style(self):
@@ -138,17 +155,16 @@ class VideoFrame(QFrame):
         self.btn_connect.clicked.connect(self.on_connect_clicked)
         self.btn_disconnect.clicked.connect(self.on_disconnect_clicked)
         self.btn_pause.clicked.connect(self.on_pause_clicked)
-        self.btn_capture.clicked.connect(self.on_capture_clicked)  # [新增]
+        self.btn_capture.clicked.connect(self.on_capture_clicked)
+        self.btn_record.clicked.connect(self.on_record_clicked)  # [新增]
 
     def on_connect_clicked(self):
         """点击连接"""
         self.video_label.setText("正在连接...")
         self.btn_connect.setEnabled(False)
-        # 重置暂停状态
         self.is_paused = False
         self.btn_pause.setChecked(False)
         self.btn_pause.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_MediaPause))
-
         get_video_service().start_camera(self.camera_index)
 
     def on_disconnect_clicked(self):
@@ -157,72 +173,119 @@ class VideoFrame(QFrame):
         self.btn_disconnect.setEnabled(False)
         self.btn_pause.setEnabled(False)
         self.btn_capture.setEnabled(False)
+        self.btn_record.setEnabled(False)
+        self.stop_recording()  # 断开时必须停止录制
         get_video_service().stop_camera(self.camera_index)
 
     def on_pause_clicked(self, checked):
         """点击暂停/继续"""
         self.is_paused = checked
         if self.is_paused:
-            # 切换为"播放"图标，表示点击可恢复
             self.btn_pause.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_MediaPlay))
             self.btn_pause.setToolTip("恢复画面")
         else:
-            # 切换为"暂停"图标
             self.btn_pause.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_MediaPause))
             self.btn_pause.setToolTip("暂停/冻结画面")
-
         get_video_service().pause_camera(self.camera_index, self.is_paused)
 
     def on_capture_clicked(self):
-        """[新增] 点击抓拍"""
-        # 如果当前没有缓存帧，尝试从界面获取（适用于暂停状态）
+        """点击单帧抓拍"""
+        self._save_image(is_continuous=False)
+
+    def on_record_clicked(self, checked):
+        """[新增] 点击连续采集"""
+        if checked:
+            self.start_recording()
+        else:
+            self.stop_recording()
+
+    def start_recording(self):
+        """开始连续采集"""
+        if self.is_recording: return
+        self.is_recording = True
+        self.btn_record.setChecked(True)
+        # 切换图标为停止
+        self.btn_record.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_MediaStop))
+        self.btn_record.setToolTip("停止连续采集")
+        # 启动定时器
+        self.record_timer.start(self.record_interval)
+        print(f"相机 {self.config.name} 开始连续采集")
+
+    def stop_recording(self):
+        """停止连续采集"""
+        if not self.is_recording: return
+        self.is_recording = False
+        self.btn_record.setChecked(False)
+        # 切换回开始图标
+        self.btn_record.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_ComputerIcon))
+        self.btn_record.setToolTip("开始连续采集")
+        self.record_timer.stop()
+        print(f"相机 {self.config.name} 停止连续采集")
+
+    def save_frame_for_record(self):
+        """定时器回调：保存连续帧"""
+        if self.is_recording:
+            self._save_image(is_continuous=True)
+
+    def _save_image(self, is_continuous=False):
+        """[核心] 保存图片逻辑，支持分文件夹"""
         target_image = self.current_image
+        # 如果没有缓存帧，尝试从UI获取（适用于暂停时抓拍）
         if target_image is None or target_image.isNull():
             pixmap = self.video_label.pixmap()
             if pixmap and not pixmap.isNull():
                 target_image = pixmap.toImage()
 
         if target_image is None or target_image.isNull():
-            print(f"相机 {self.config.name} 无图像，无法抓拍")
+            if not is_continuous:  # 只有手动抓拍才打印无图像警告，避免连续采集刷屏
+                print(f"相机 {self.config.name} 无图像，无法保存")
             return
 
         try:
-            # 确保保存目录存在
-            save_dir = "data/snapshots"
+            # 1. 确定保存目录
+            # 根据相机名称创建独立文件夹，去除空格等非法字符
+            cam_folder_name = self.config.name.replace(" ", "_")
+
+            # 基础路径 + 模式(snapshot/continuous) + 相机名
+            # 例如: data/snapshots/铅快粗泡沫相机/
+            mode_folder = "continuous" if is_continuous else "snapshots"
+            save_dir = f"data/{mode_folder}/{cam_folder_name}"
+
             os.makedirs(save_dir, exist_ok=True)
 
-            # 生成文件名: 相机名_时间戳.jpg
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")[:-3]  # 精确到毫秒
-            cam_name = self.config.name.replace(" ", "_")  # 去除空格
-            filename = f"{save_dir}/{cam_name}_{timestamp}.jpg"
+            # 2. 生成文件名
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")[:-3]
+            prefix = "REC" if is_continuous else "SNAP"
+            filename = f"{save_dir}/{prefix}_{timestamp}.jpg"
 
-            # 保存图片
+            # 3. 保存
             if target_image.save(filename, "JPG"):
-                print(f"截图已保存: {filename}")
-                # 视觉反馈：指示灯闪烁白色
-                self.status_indicator.setStyleSheet("background-color: #ffffff; border-radius: 5px;")
-                QTimer.singleShot(200, lambda: self.handle_status_change(
-                    self.camera_index,
-                    {'status': 'connected' if not self.is_paused else 'simulation'}  # 简单恢复颜色
-                ))
+                if not is_continuous:
+                    print(f"截图已保存: {filename}")
+                    # 手动抓拍给予视觉反馈
+                    self.status_indicator.setStyleSheet("background-color: #ffffff; border-radius: 5px;")
+                    QTimer.singleShot(200, lambda: self.handle_status_change(
+                        self.camera_index,
+                        {'status': 'connected' if not self.is_paused else 'simulation'}
+                    ))
             else:
-                print(f"保存截图失败: {filename}")
+                print(f"保存失败: {filename}")
 
         except Exception as e:
-            print(f"抓拍过程发生异常: {e}")
+            print(f"保存图像异常: {e}")
 
     @Slot(int, QImage)
     def handle_frame_ready(self, camera_index: int, image: QImage):
         if camera_index != self.camera_index:
             return
 
-        # [新增] 缓存当前帧用于抓拍
         self.current_image = image
 
-        # 如果前端认为暂停了，也不更新（虽然 Worker 已经不发了，双重保险）
         if not self.is_paused:
             self.video_label.setPixmap(QPixmap.fromImage(image))
-            self.status_indicator.setStyleSheet("background-color: #2ecc71; border-radius: 5px;")
+            # 录制中显示红色指示灯，否则绿色
+            color = "#e74c3c" if self.is_recording else "#2ecc71"
+            self.status_indicator.setStyleSheet(f"background-color: {color}; border-radius: 5px;")
 
     @Slot(int, dict)
     def handle_status_change(self, camera_index: int, status: dict):
@@ -231,38 +294,44 @@ class VideoFrame(QFrame):
 
         status_code = status.get('status')
 
-        # 根据状态更新按钮可用性
         if status_code in ['connected', 'simulation']:
             self.btn_connect.setEnabled(False)
             self.btn_disconnect.setEnabled(True)
             self.btn_pause.setEnabled(True)
-            self.btn_capture.setEnabled(True)  # 连接成功允许抓拍
+            self.btn_capture.setEnabled(True)
+            self.btn_record.setEnabled(True)
 
-            color = "#2ecc71" if status_code == 'connected' else "#f39c12"  # 绿/橙
+            color = "#2ecc71" if status_code == 'connected' else "#f39c12"
+            if self.is_recording: color = "#e74c3c"  # 录制状态优先显示红灯
             self.status_indicator.setStyleSheet(f"background-color: {color}; border-radius: 5px;")
 
         elif status_code == 'stopped':
             self.video_label.setText("已断开")
-            self.video_label.setPixmap(QPixmap())  # 清除画面
-            self.current_image = None  # 清除缓存
+            self.video_label.setPixmap(QPixmap())
+            self.current_image = None
+
+            # 断开时停止录制
+            self.stop_recording()
 
             self.btn_connect.setEnabled(True)
             self.btn_disconnect.setEnabled(False)
             self.btn_pause.setEnabled(False)
             self.btn_capture.setEnabled(False)
-            self.btn_pause.setChecked(False)  # 重置选中状态
+            self.btn_record.setEnabled(False)
+            self.btn_pause.setChecked(False)
             self.is_paused = False
 
-            self.status_indicator.setStyleSheet("background-color: #7f8c8d; border-radius: 5px;")  # 灰
+            self.status_indicator.setStyleSheet("background-color: #7f8c8d; border-radius: 5px;")
 
         elif status_code == 'starting':
             self.video_label.setText("正在启动...")
-            self.status_indicator.setStyleSheet("background-color: #f1c40f; border-radius: 5px;")  # 黄
+            self.status_indicator.setStyleSheet("background-color: #f1c40f; border-radius: 5px;")
 
 
 class VideoDisplayWidget(QWidget):
     """主视频监控网格区域"""
 
+    # ... (保持不变，省略以节省空间，因为 VideoDisplayWidget 没有逻辑变更)
     def __init__(self, parent=None):
         super().__init__(parent)
         self.video_service = get_video_service()
@@ -280,7 +349,6 @@ class VideoDisplayWidget(QWidget):
         self.main_layout.setSpacing(spacing)
 
         all_cameras = config_manager.get_camera_configs()
-        # 显示所有配置中 layout.visible=True 的相机
         visible_cameras = [cam for cam in all_cameras if cam.layout.visible]
 
         if not visible_cameras:
@@ -296,7 +364,6 @@ class VideoDisplayWidget(QWidget):
             self.frames[cam_config.camera_index] = frame
 
     def setup_connections(self):
-        """连接所有相机的 Worker 信号"""
         for cam_index, frame_widget in self.frames.items():
             worker = self.video_service.get_worker(cam_index)
             if worker:
