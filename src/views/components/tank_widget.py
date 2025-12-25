@@ -14,8 +14,8 @@ from src.services.data_service import get_data_service
 
 class TankVisualizationWidget(QWidget):
     """
-    浮选槽可视化组件 - 工业HMI风格 (精致图标版)
-    特性：动态搅拌、气泡粒子、自适应管道、带图标的现代化仪表盘
+    浮选槽可视化组件 - 工业HMI风格 (最终定稿版)
+    特性：260px宽卡片、增强泡沫层、粗管道对齐、数据驱动
     """
 
     # 信号定义
@@ -161,24 +161,25 @@ class PipeConnectionWidget(QWidget):
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         w, h = self.width(), self.height()
 
-        # [调整] 对齐坐标优化，对齐槽体图形
-        froth_y = 90  # 泡沫流
-        pulp_y = 205  # 矿浆流
+        # [调整] 精确对齐槽体图形的进出口
+        # 基于 Header(35) + Padding(10) + Graphic Offset 计算
+        froth_y = 73  # 泡沫流 (上部)
+        pulp_y = 212  # 矿浆流 (下部)
 
-        # 泡沫流 (右)
-        painter.setPen(QPen(QColor("#f39c12"), 4, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+        # 泡沫流 (右) - [调整] 线宽增加到 5
+        painter.setPen(QPen(QColor("#f39c12"), 5, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
         painter.drawLine(0, froth_y, w, froth_y)
         self._draw_arrow(painter, w / 2, froth_y, "right", "#f39c12")
 
-        # 矿浆流 (左)
-        painter.setPen(QPen(QColor("#95a5a6"), 4, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+        # 矿浆流 (左) - [调整] 线宽增加到 5
+        painter.setPen(QPen(QColor("#95a5a6"), 5, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
         painter.drawLine(0, pulp_y, w, pulp_y)
         self._draw_arrow(painter, w / 2, pulp_y, "left", "#95a5a6")
 
     def _draw_arrow(self, painter, x, y, direction, color):
         painter.setBrush(QBrush(QColor(color)))
         painter.setPen(Qt.PenStyle.NoPen)
-        s = 6
+        s = 8  # [调整] 箭头放大
         pts = [QPointF(x, y), QPointF(x - s, y - s), QPointF(x - s, y + s)] if direction == "right" else \
             [QPointF(x, y), QPointF(x + s, y - s), QPointF(x + s, y + s)]
         painter.drawPolygon(pts)
@@ -259,13 +260,15 @@ class TankGraphicWidget(QWidget):
                 b[3])
         painter.restore()
 
-        # 3. 泡沫层
-        froth_h = 14
-        froth_y_pos = liquid_y - froth_h + 3
+        # 3. [恢复] 泡沫层 (Froth Layer)
+        froth_h = 18  # [调整] 加厚泡沫层
+        froth_y_pos = liquid_y - froth_h + 4
         froth_rect = QRectF(tank_rect.left() + 2, froth_y_pos, tank_rect.width() - 4, froth_h)
+
         froth_grad = QLinearGradient(froth_rect.topLeft(), froth_rect.bottomLeft())
-        froth_grad.setColorAt(0, QColor(255, 255, 255, 230))
-        froth_grad.setColorAt(1, self.base_color.lighter(160))
+        froth_grad.setColorAt(0, QColor(255, 255, 255, 240))
+        froth_grad.setColorAt(1, self.base_color.lighter(170))
+
         painter.setPen(Qt.PenStyle.NoPen)
         painter.setBrush(froth_grad)
         painter.drawRoundedRect(froth_rect, 4, 4)
@@ -320,7 +323,8 @@ class SingleTankWidget(QFrame):
         shadow.setOffset(0, 3)
         self.setGraphicsEffect(shadow)
 
-        self.setFixedWidth(245)
+        # [调整] 扩大到 260px，视觉更饱满
+        self.setFixedWidth(260)
         self.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Preferred)
 
         main_layout = QVBoxLayout(self)
@@ -398,7 +402,7 @@ class SingleTankWidget(QFrame):
         layout.addWidget(title)
 
         items_layout = QGridLayout()
-        # [调整] 增加垂直间距，更宽松
+        # [调整] 增加垂直间距，更宽松 (8->12)
         items_layout.setVerticalSpacing(12)
         items_layout.setHorizontalSpacing(5)
         items_layout.setColumnStretch(0, 1)
@@ -513,7 +517,7 @@ class SingleTankWidget(QFrame):
         return frame
 
     def update_data(self, data):
-        # 液位更新 (兼容逻辑)
+        # 液位更新
         if 'level' in data:
             try:
                 val = float(data['level'])
