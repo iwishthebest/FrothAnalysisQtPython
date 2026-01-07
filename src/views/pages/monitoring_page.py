@@ -5,10 +5,11 @@ from PySide6.QtCore import Qt, Slot
 from PySide6.QtGui import QFont
 import pyqtgraph as pg
 import numpy as np
-from datetime import datetime
+from datetime import datetime, timedelta
 
 # 引入 OPC 服务
 from src.services.opc_service import get_opc_service
+from src.services.data_service import get_data_service
 
 
 class StatCard(QFrame):
@@ -75,6 +76,7 @@ class MonitoringPage(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.opc_service = get_opc_service()
+        self.data_service = get_data_service()
 
         # 状态记录
         self.last_chart_update = datetime.min
@@ -82,12 +84,17 @@ class MonitoringPage(QWidget):
 
         # 数据缓冲
         self.max_points = 100
+        # [修改] 初始化时间数组 (存储 timestamp float)
+        self.time_data = np.zeros(self.max_points)
         self.feed_grade_data = np.zeros(self.max_points)
         self.conc_grade_data = np.zeros(self.max_points)
 
         self.setup_ui()
         self.setup_charts()
         self.setup_connections()
+
+        # [新增] 初始化时加载历史数据
+        self.load_history()
 
     def setup_ui(self):
         # 整体背景色
@@ -117,7 +124,7 @@ class MonitoringPage(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(20)
 
-        # [关键] 创建三个漂亮的卡片，并保存为 self.card_xxx
+        # 创建三个漂亮的卡片
         self.card_feed = StatCard("原矿铅品位 (Feed)", "%", "#3498db", "⛏️")
         self.card_conc = StatCard("高铅精矿品位 (Conc)", "%", "#e74c3c", "💎")
         self.card_rec = StatCard("铅回收率 (Recovery)", "%", "#2ecc71", "📈")
@@ -148,13 +155,17 @@ class MonitoringPage(QWidget):
         pg.setConfigOption('background', 'w')
         pg.setConfigOption('foreground', 'k')
 
-        self.feed_plot = pg.PlotWidget()
+        # [修改] 使用 DateAxisItem 作为 x 轴
+        date_axis_1 = pg.DateAxisItem(orientation='bottom')
+        self.feed_plot = pg.PlotWidget(axisItems={'bottom': date_axis_1})
         self.feed_plot.setTitle("原矿铅品位趋势", color="#3498db", size="10pt")
         self.feed_plot.showGrid(x=True, y=True, alpha=0.3)
         self.feed_plot.setLabel('left', '品位', units='%')
         self.feed_curve = self.feed_plot.plot(pen=pg.mkPen(color='#3498db', width=2))
 
-        self.conc_plot = pg.PlotWidget()
+        # 为第二个图表也创建独立的 DateAxisItem
+        date_axis_2 = pg.DateAxisItem(orientation='bottom')
+        self.conc_plot = pg.PlotWidget(axisItems={'bottom': date_axis_2})
         self.conc_plot.setTitle("高铅精矿品位趋势", color="#e74c3c", size="10pt")
         self.conc_plot.showGrid(x=True, y=True, alpha=0.3)
         self.conc_plot.setLabel('left', '品位', units='%')
@@ -209,72 +220,165 @@ class MonitoringPage(QWidget):
         if worker:
             worker.data_updated.connect(self.handle_data_updated)
 
+    def load_history(self):
+        """[新增] 从数据库加载历史数据填充图表和表格"""
+        try:
+            # 1. 计算时间范围 (过去24小时)
+            end_time = datetime.now()
+            start_time = end_time - timedelta(hours=24)
+
+            # 2. 查询数据
+            history = self.data_service.get_historical_data(start_time, end_time)
+            if not history:
+                return
+
+            # 3. 准备图表数据
+            times = []
+            feeds = []
+            concs = []
+
+            for row in history:
+                # 解析时间戳
+                ts_val = row['timestamp']
+                dt = None
+                if isinstance(ts_val, str):
+                    try:
+                        # 尝试带微秒
+                        dt = datetime.strptime(ts_val, "%Y-%m-%d %H:%M:%S.%f")
+                    except ValueError:
+                        try:
+                            # 尝试不带微秒
+                            dt = datetime.strptime(ts_val, "%Y-%m-%d %H:%M:%S")
+                        except:
+                            continue  # 解析失败跳过
+                elif isinstance(ts_val, datetime):
+                    dt = ts_val
+
+                if dt:
+                    times.append(dt.timestamp())  # 转为秒级 timestamp
+                    feeds.append(row['feed_grade'] if row['feed_grade'] is not None else 0.0)
+                    concs.append(row['conc_grade'] if row['conc_grade'] is not None else 0.0)
+
+            # 截取最后 max_points 个点
+            if len(times) > self.max_points:
+                times = times[-self.max_points:]
+                feeds = feeds[-self.max_points:]
+                concs = concs[-self.max_points:]
+
+            # 填充到数组尾部 (保持时间顺序)
+            count = len(times)
+            if count > 0:
+                self.time_data[-count:] = times
+                self.feed_grade_data[-count:] = feeds
+                self.conc_grade_data[-count:] = concs
+
+                # 刷新图表
+                self.feed_curve.setData(x=self.time_data, y=self.feed_grade_data)
+                self.conc_curve.setData(x=self.time_data, y=self.conc_grade_data)
+
+                # 4. 填充表格 (显示最新的10条，倒序)
+                self.data_table.setRowCount(0)
+
+                # 获取所有历史数据
+                for row in history:
+                    ts_val = row['timestamp']
+                    # [修改] 优化时间格式化逻辑，去掉微秒
+                    time_str = ""
+                    if isinstance(ts_val, datetime):
+                        time_str = ts_val.strftime("%H:%M:%S")
+                    elif isinstance(ts_val, str):
+                        try:
+                            # 尝试解析带微秒的格式
+                            dt = datetime.strptime(ts_val, "%Y-%m-%d %H:%M:%S.%f")
+                            time_str = dt.strftime("%H:%M:%S")
+                        except ValueError:
+                            try:
+                                # 尝试解析不带微秒的格式
+                                dt = datetime.strptime(ts_val, "%Y-%m-%d %H:%M:%S")
+                                time_str = dt.strftime("%H:%M:%S")
+                            except:
+                                # 最后的兜底：分割字符串取时间部分，并去掉小数点后的内容
+                                parts = ts_val.split(' ')
+                                if len(parts) > 1:
+                                    time_part = parts[-1]
+                                    time_str = time_part.split('.')[0]
+                                else:
+                                    time_str = ts_val.split('.')[0]
+
+                    f_val = row['feed_grade']
+                    c_val = row['conc_grade']
+                    r_val = row['recovery']
+
+                    self.data_table.insertRow(0)
+                    self.data_table.setItem(0, 0, QTableWidgetItem(time_str))
+                    self.data_table.setItem(0, 1, QTableWidgetItem(f"{f_val:.2f}" if f_val is not None else "--"))
+                    self.data_table.setItem(0, 2, QTableWidgetItem(f"{c_val:.2f}" if c_val is not None else "--"))
+                    self.data_table.setItem(0, 3, QTableWidgetItem(f"{r_val:.2f}" if r_val is not None else "--"))
+
+                # 限制表格行数
+                while self.data_table.rowCount() > 50:
+                    self.data_table.removeRow(50)
+
+        except Exception as e:
+            print(f"加载历史数据失败: {e}")
+
     @Slot(dict)
     def handle_data_updated(self, data: dict):
         """处理 OPC 数据更新信号"""
 
-        # [修改] 增加无效值过滤逻辑
-        def get_val(tag):
+        def get_val(tag, default=0.0):
             if tag in data and data[tag].get('value') is not None:
-                val = float(data[tag]['value'])
-                # 如果是无效值，返回 None
-                if val == -9999.0:
-                    return None
-                return val
-            return None
+                return float(data[tag]['value'])
+            return default
 
-        # 获取数据 (可能为 None)
-        val_feed = get_val("KYFX.kyfx_yk_grade_Pb")
-        val_conc = get_val("KYFX.kyfx_gqxk_grade_Pb")
-        val_tail = get_val("KYFX.kyfx_qw_grade_Pb")
-        val_conc_total = get_val("KYFX.kyfx_zqxk_grade_Pb")
+        val_feed = get_val("KYFX.kyfx_yk_grade_Pb", 0.0)
+        val_conc = get_val("KYFX.kyfx_gqxk_grade_Pb", 0.0)
+        val_tail = get_val("KYFX.kyfx_qw_grade_Pb", 0.0)
+        val_conc_total = get_val("KYFX.kyfx_zqxk_grade_Pb", 0.0)
 
-        # 计算回收率 (必须所有参与计算的值都有效)
-        val_rec = None
+        val_rec = 0.0
         try:
-            # 只有当所有相关数据都有效(不为None)时才计算
-            if val_feed is not None and val_tail is not None and val_conc_total is not None:
-                c = val_conc_total
-                f = val_feed
-                t = val_tail
-                if f > t and c > t and f > 0 and (c - t) != 0:
-                    numerator = c * (f - t)
-                    denominator = f * (c - t)
-                    res = (numerator / denominator) * 100
-                    val_rec = max(0.0, min(100.0, res))
+            c = val_conc_total
+            f = val_feed
+            t = val_tail
+            if f > t and c > t and f > 0 and (c - t) != 0:
+                numerator = c * (f - t)
+                denominator = f * (c - t)
+                val_rec = (numerator / denominator) * 100
+                val_rec = max(0.0, min(100.0, val_rec))
         except Exception:
-            val_rec = None
+            val_rec = 0.0
 
-        # [修改] 更新卡片显示：如果是 None 则显示 "--"
-        self.card_feed.set_value(f"{val_feed:.2f}" if val_feed is not None else "--")
-        self.card_conc.set_value(f"{val_conc:.2f}" if val_conc is not None else "--")
-        self.card_rec.set_value(f"{val_rec:.2f}" if val_rec is not None else "--")
+        # 更新卡片
+        self.card_feed.set_value(f"{val_feed:.2f}")
+        self.card_conc.set_value(f"{val_conc:.2f}")
+        self.card_rec.set_value(f"{val_rec:.2f}")
 
-        # 图表和表格更新逻辑
+        # 图表和表格更新逻辑 (每10分钟)
         now = datetime.now()
         if (now - self.last_chart_update).total_seconds() >= self.chart_update_interval:
             self.last_chart_update = now
             timestamp_str = now.strftime("%H:%M:%S")
 
-            # 图表数据填充：如果无效，暂时填0 (或者取上一个有效值，这里用0表示断点)
-            plot_feed = val_feed if val_feed is not None else 0.0
-            plot_conc = val_conc if val_conc is not None else 0.0
+            # [修改] 更新时间数组
+            self.time_data = np.roll(self.time_data, -1)
+            self.time_data[-1] = now.timestamp()  # 存入当前时间戳
 
             self.feed_grade_data = np.roll(self.feed_grade_data, -1)
-            self.feed_grade_data[-1] = plot_feed
+            self.feed_grade_data[-1] = val_feed
 
             self.conc_grade_data = np.roll(self.conc_grade_data, -1)
-            self.conc_grade_data[-1] = plot_conc
+            self.conc_grade_data[-1] = val_conc
 
-            self.feed_curve.setData(self.feed_grade_data)
-            self.conc_curve.setData(self.conc_grade_data)
+            # [修改] 绘图时指定 x=时间
+            self.feed_curve.setData(x=self.time_data, y=self.feed_grade_data)
+            self.conc_curve.setData(x=self.time_data, y=self.conc_grade_data)
 
-            # 表格数据填充
             self.data_table.insertRow(0)
             self.data_table.setItem(0, 0, QTableWidgetItem(timestamp_str))
-            self.data_table.setItem(0, 1, QTableWidgetItem(f"{val_feed:.2f}" if val_feed is not None else "--"))
-            self.data_table.setItem(0, 2, QTableWidgetItem(f"{val_conc:.2f}" if val_conc is not None else "--"))
-            self.data_table.setItem(0, 3, QTableWidgetItem(f"{val_rec:.2f}" if val_rec is not None else "--"))
+            self.data_table.setItem(0, 1, QTableWidgetItem(f"{val_feed:.2f}"))
+            self.data_table.setItem(0, 2, QTableWidgetItem(f"{val_conc:.2f}"))
+            self.data_table.setItem(0, 3, QTableWidgetItem(f"{val_rec:.2f}"))
 
             if self.data_table.rowCount() > 50:
                 self.data_table.removeRow(50)

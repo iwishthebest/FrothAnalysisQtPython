@@ -1,7 +1,3 @@
-"""
-src/services/opc_service.py
-OPC 服务 - 增强版 (防网络中断/自动重连/日志降噪)
-"""
 import csv
 import re
 import requests
@@ -189,8 +185,9 @@ class OPCWorker(QObject):
                     tag_name = item['TagName'].strip()
                     try:
                         val = float(item['Value'])
+                        # [修改] 筛选无效值 -9999.0 (主要针对 KYFX 标签)
                         if val == -9999.0:
-                            values[tag_name] = {'value': val, 'timestamp': item['Time'], 'quality': 'Bad'}
+                            values[tag_name] = {'value': None, 'timestamp': item['Time'], 'quality': 'Bad'}
                         else:
                             values[tag_name] = {'value': val, 'timestamp': item['Time'], 'quality': 'Good'}
                     except:
