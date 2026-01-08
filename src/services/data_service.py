@@ -14,9 +14,11 @@ from pathlib import Path
 from config.config_system import config_manager
 from PySide6.QtCore import QObject
 
+
 # --- 基础类定义 (避免循环导入) ---
 class BaseService(QObject):
     def __init__(self, name): super().__init__()
+
 
 class ServiceStatus:
     STARTING = "STARTING"
@@ -25,8 +27,10 @@ class ServiceStatus:
     STOPPED = "STOPPED"
     ERROR = "ERROR"
 
+
 class ServiceError(Exception):
     pass
+
 
 # --- DataService 主类 ---
 class DataService(BaseService):
@@ -64,16 +68,46 @@ class DataService(BaseService):
             'qkj3_shihui': 'YJ.yj_qkj3_shihui:actualflow'
         }
 
-        # 2. [新增] 泡沫特征映射 [数据库列名 -> AnalysisService字典Key]
-        # 这里定义了要存入数据库的泡沫特征
+        # 2. [修改] 泡沫特征映射 [数据库列名 -> AnalysisService字典Key]
+        # 扩展了颜色(RGB/HSV/统计)、纹理(GLCM)、形态(分布/圆度)及动态(方差)特征
         self.froth_mapping = {
-            'froth_mean_diam': 'bubble_mean_diam',       # 平均粒径
-            'froth_bubble_count': 'bubble_count',        # 气泡数量
-            'froth_speed': 'speed_mean',                 # 平均速度
-            'froth_stability': 'stability',              # 稳定性
-            'froth_red_gray_ratio': 'color_red_gray_ratio', # 红灰比
-            'froth_gray_mean': 'color_gray_mean',        # 灰度均值
-            'froth_entropy': 'lbp_entropy'               # 纹理熵
+            # --- 核心指标 (原有) ---
+            'froth_mean_diam': 'bubble_mean_diam',  # 平均粒径
+            'froth_bubble_count': 'bubble_count',  # 气泡数量
+            'froth_speed': 'speed_mean',  # 平均速度
+            'froth_stability': 'stability',  # 稳定性
+            'froth_red_gray_ratio': 'color_red_gray_ratio',  # 红灰比 (关键氧化程度指标)
+            'froth_gray_mean': 'color_gray_mean',  # 灰度均值 (亮度)
+            'froth_entropy': 'lbp_entropy',  # 纹理熵 (表面粗糙度)
+
+            # --- [新增] 颜色特征 (RGB & HSV) ---
+            'froth_r_mean': 'color_r_mean',  # R分量
+            'froth_g_mean': 'color_g_mean',  # G分量
+            'froth_b_mean': 'color_b_mean',  # B分量
+            'froth_h_mean': 'color_h_mean',  # 色调 (Hue)
+            'froth_s_mean': 'color_s_mean',  # 饱和度 (Saturation)
+            'froth_v_mean': 'color_v_mean',  # 亮度 (Value)
+
+            # --- [新增] 颜色统计矩 (反映颜色分布一致性) ---
+            'froth_color_var': 'color_variance',  # 颜色方差
+            'froth_color_skew': 'color_skewness',  # 颜色偏度
+            'froth_color_kurt': 'color_kurtosis',  # 颜色峰度
+
+            # --- [新增] 纹理特征 (GLCM - 反映泡沫细腻程度) ---
+            'froth_glcm_contrast': 'glcm_contrast',  # 对比度
+            'froth_glcm_energy': 'glcm_energy',  # 能量 (一致性)
+            'froth_glcm_corr': 'glcm_correlation',  # 相关性
+            'froth_glcm_homo': 'glcm_homogeneity',  # 同质性
+
+            # --- [新增] 形态学分布 (反映大小不均程度) ---
+            'froth_d10': 'bubble_d10',  # 10% 粒径
+            'froth_d50': 'bubble_d50',  # 中值粒径 (比平均值更鲁棒)
+            'froth_d90': 'bubble_d90',  # 90% 粒径 (反映大泡占比)
+            'froth_circularity': 'bubble_mean_circularity',  # 圆度 (反映兼并/破裂程度)
+            'froth_mean_area': 'bubble_mean_area',  # 平均面积
+
+            # --- [新增] 动态特征 ---
+            'froth_speed_var': 'speed_variance'  # 速度方差 (反映流动是否紊乱)
         }
 
         self.all_csv_headers = self._load_all_headers()
@@ -110,9 +144,12 @@ class DataService(BaseService):
                         raw = row[0]
                         if "source:" in raw: raw = raw.split(']')[-1]
                         cleaned = re.sub(r'[\[\]]', '', raw).strip()
-                        if cleaned.startswith('yj_'): tag = f'YJ.{cleaned}'
-                        elif cleaned.startswith('kyfx_'): tag = f'KYFX.{cleaned}'
-                        else: tag = cleaned
+                        if cleaned.startswith('yj_'):
+                            tag = f'YJ.{cleaned}'
+                        elif cleaned.startswith('kyfx_'):
+                            tag = f'KYFX.{cleaned}'
+                        else:
+                            tag = cleaned
                         headers.append(tag)
         except Exception as e:
             print(f"加载标签列表失败: {e}")
@@ -178,7 +215,7 @@ class DataService(BaseService):
             # 获取保存间隔 (默认为1秒，适应实时性)
             try:
                 slow_interval = config_manager.get_network_config().slow_tag_interval
-                if slow_interval < 1.0: slow_interval = 1.0 # 限制最小间隔
+                if slow_interval < 1.0: slow_interval = 1.0  # 限制最小间隔
             except:
                 slow_interval = 1.0
 
@@ -221,8 +258,10 @@ class DataService(BaseService):
             def get_val(key, default=0.0):
                 v = flat_data.get(key)
                 if v is None or v == -9999.0: return default
-                try: return float(v)
-                except: return default
+                try:
+                    return float(v)
+                except:
+                    return default
 
             # --- 1. 核心指标 ---
             f = get_val("KYFX.kyfx_yk_grade_Pb")
@@ -319,8 +358,11 @@ class DataService(BaseService):
                 # 如果因为列不存在导致查询失败，返回空（可能正在初始化）
                 return []
 
+
 # 单例模式
 _data_service_instance = None
+
+
 def get_data_service() -> DataService:
     global _data_service_instance
     if _data_service_instance is None:
