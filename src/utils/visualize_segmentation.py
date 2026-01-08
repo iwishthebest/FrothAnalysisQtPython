@@ -105,7 +105,7 @@ def visualize_bubble_segmentation(image_path):
 # --- 运行测试 ---
 if __name__ == "__main__":
     # 请替换为您的图片路径
-    img_path = "test_froth.jpg"
+    img_path = "../../test_froth.jpg"
 
     # 如果没有图片，生成一个简单的模拟图
     import os

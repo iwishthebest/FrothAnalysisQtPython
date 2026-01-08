@@ -16,7 +16,8 @@ class CameraWorker(QObject):
     """
     相机工作线程类
     """
-    frame_ready = Signal(int, QImage)
+    frame_ready = Signal(int, QImage)  # 给 UI 显示
+    raw_frame_ready = Signal(int, object)  # [新增] 给算法分析 (object类型可传输numpy数组)
     status_changed = Signal(int, dict)
     start_requested = Signal()
 
@@ -111,6 +112,10 @@ class CameraWorker(QObject):
                 frame = self._generate_simulation_frame(text="ERROR")
 
             if self.running and not self.force_exit and not self.paused and frame is not None:
+                # 1. 发送给算法 (原始BGR数据)
+                self.raw_frame_ready.emit(self.camera_index, frame)
+
+                # 2. 处理为 QImage 发送给 UI
                 q_image = self._process_frame(frame)
                 if q_image:
                     self.frame_ready.emit(self.camera_index, q_image)
