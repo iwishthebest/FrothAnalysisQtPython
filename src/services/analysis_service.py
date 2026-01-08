@@ -24,8 +24,8 @@ class AnalysisWorker(QObject):
         self.last_process_time = 0  # 用于计算时间间隔
         self.processing = False  # 防重入标志
 
-    @Slot(int, np.ndarray)  # 接收相机索引和图像数据
-    def process_frame(self, camera_index: int, image: np.ndarray):
+    @Slot(int, object) # 接收相机索引和图像数据
+    def process_frame(self, camera_index: int, image):
         if self.processing:
             return  # 如果上一帧还在处理，直接丢弃当前帧（防止积压）
 
