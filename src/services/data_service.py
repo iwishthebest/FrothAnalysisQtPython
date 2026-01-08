@@ -319,7 +319,7 @@ class DataService(BaseService):
             conn.commit()
 
     def _save_to_csv(self, timestamp, flat_data: Dict[str, Any]):
-        """保存 CSV 备份"""
+        """保存 CSV 备份 (修复版：使用固定表头)"""
         try:
             filename = f"{timestamp.strftime('%Y%m%d')}_process_data.csv"
             filepath = self.csv_dir / filename
@@ -328,22 +328,26 @@ class DataService(BaseService):
             with open(filepath, 'a', newline='', encoding='utf-8-sig') as f:
                 writer = csv.writer(f)
 
-                # 确定表头: 时间 + 缓存中的所有 Key
-                current_keys = sorted([k for k in flat_data.keys() if k != 'last_updated'])
-                headers = ["Timestamp"] + current_keys
-
-                # 写表头 (如果是新文件)
+                # [修改] 不再使用 flat_data.keys()，而是使用 self.fixed_csv_headers
+                # 这样即使第一帧没有分析数据，表头也会包含 'bubble_mean_diam' 等列
                 if not file_exists:
-                    writer.writerow(headers)
+                    writer.writerow(self.fixed_csv_headers)
 
-                # 写数据
-                row = [timestamp.strftime("%Y-%m-%d %H:%M:%S")]
-                for key in headers[1:]:
-                    val = flat_data.get(key, "")
-                    row.append(val)
+                # [修改] 根据固定表头构建数据行，确保列对齐
+                row = []
+                for key in self.fixed_csv_headers:
+                    if key == "Timestamp":
+                        row.append(timestamp.strftime("%Y-%m-%d %H:%M:%S"))
+                    elif key == "camera_id":
+                        # 特殊处理相机ID，如果缓存里是 camera_index
+                        row.append(flat_data.get('camera_index', ''))
+                    else:
+                        # 如果缓存里还没有这个数据（例如分析还没算完），填空字符串或0
+                        row.append(flat_data.get(key, ""))
+
                 writer.writerow(row)
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"CSV保存失败: {e}")
 
     def get_current_data(self, key: Optional[str] = None) -> Any:
         with self._cache_lock:
