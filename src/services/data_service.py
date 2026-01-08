@@ -67,8 +67,16 @@ class DataService(BaseService):
             'qkj3_ds2': 'YJ.yj_qkj3_ds2:actualflow',
             'qkj3_shihui': 'YJ.yj_qkj3_shihui:actualflow'
         }
+        # 2. [新增] 品位/工况映射 [数据库列名(逻辑名) -> OPC标签名]
+        # 提取自 _save_to_sqlite 中的硬编码
+        self.grade_mapping = {
+            'feed_grade_Pb': 'KYFX.kyfx_yk_grade_Pb',  # 原矿品位
+            'conc_grade_Pb': 'KYFX.kyfx_gqxk_grade_Pb',  # 精矿品位
+            'tail_grade_Pb': 'KYFX.kyfx_qw_grade_Pb',  # 尾矿品位 (用于计算回收率)
+            'conc_total_Pb': 'KYFX.kyfx_zqxk_grade_Pb'  # 综合精矿 (用于计算回收率)
+        }
 
-        # 2. [修改] 泡沫特征映射 [数据库列名 -> AnalysisService字典Key]
+        # 3. 泡沫特征映射 [数据库列名 -> AnalysisService字典Key]
         # 扩展了颜色(RGB/HSV/统计)、纹理(GLCM)、形态(分布/圆度)及动态(方差)特征
         self.froth_mapping = {
             # --- 核心指标 (原有) ---
@@ -110,7 +118,18 @@ class DataService(BaseService):
             'froth_speed_var': 'speed_variance'  # 速度方差 (反映流动是否紊乱)
         }
 
+        # 加载外部定义的其他标签
         self.all_csv_headers = self._load_all_headers()
+        # [修改] 构建全量固定表头
+        # 逻辑：Timestamp + 相机ID + (药剂Tag + 品位Tag + 泡沫Key) + 外部文件Tag
+        # 重点：通过 values() 获取原始的 Key/Tag，确保 _save_to_csv 能在 flat_data 中找到对应值
+        important_keys = list(self.reagent_mapping.values()) + \
+                         list(self.grade_mapping.values()) + \
+                         list(self.froth_mapping.values())
+
+        # 合并并去重
+        self.fixed_csv_headers = ["Timestamp", "camera_id"] + \
+                                 sorted(list(set(important_keys + self.all_csv_headers)))
         self.last_periodic_save_time = datetime.min
         self.yj_value_cache = {}
 
@@ -263,11 +282,14 @@ class DataService(BaseService):
                 except:
                     return default
 
-            # --- 1. 核心指标 ---
-            f = get_val("KYFX.kyfx_yk_grade_Pb")
-            c = get_val("KYFX.kyfx_gqxk_grade_Pb")
-            c_total = get_val("KYFX.kyfx_zqxk_grade_Pb")
-            t = get_val("KYFX.kyfx_qw_grade_Pb")
+            # --- 1. 核心指标 (使用映射获取) ---
+            # 直接使用 grade_mapping 中的 Tag 来取值
+            f = get_val(self.grade_mapping['feed_grade_Pb'])
+            c = get_val(self.grade_mapping['conc_grade_Pb'])
+            c_total = get_val(self.grade_mapping['conc_total_Pb'])
+            t = get_val(self.grade_mapping['tail_grade_Pb'])
+
+            # 计算回收率
             rec = 0.0
             if f > 0 and (c_total - t) != 0:
                 rec = (c_total * (f - t)) / (f * (c_total - t)) * 100
@@ -280,8 +302,7 @@ class DataService(BaseService):
                 columns.append(col_name)
                 values.append(get_val(tag_name))
 
-            # --- 3. [关键] 泡沫特征数据 ---
-            # 根据映射关系，从 flat_data 中提取 feature_extract.py 产生的 Key
+            # --- 3. 泡沫特征数据 ---
             for col_name, dict_key in self.froth_mapping.items():
                 columns.append(col_name)
                 values.append(get_val(dict_key))
