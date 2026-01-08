@@ -12,30 +12,23 @@ from datetime import datetime
 from threading import Lock
 from pathlib import Path
 from config.config_system import config_manager
+from PySide6.QtCore import QObject
 
-# 保持原有的兼容性导入
-try:
-    from . import BaseService, ServiceError, ServiceStatus
-except ImportError:
-    from PySide6.QtCore import QObject
+# --- 基础类定义 (避免循环导入) ---
+class BaseService(QObject):
+    def __init__(self, name): super().__init__()
 
+class ServiceStatus:
+    STARTING = "STARTING"
+    RUNNING = "RUNNING"
+    STOPPING = "STOPPING"
+    STOPPED = "STOPPED"
+    ERROR = "ERROR"
 
-    class BaseService(QObject):
-        def __init__(self, name): super().__init__()
+class ServiceError(Exception):
+    pass
 
-
-    class ServiceStatus:
-        STARTING = "STARTING";
-        RUNNING = "RUNNING";
-        STOPPING = "STOPPING";
-        STOPPED = "STOPPED";
-        ERROR = "ERROR"
-
-
-    class ServiceError(Exception):
-        pass
-
-
+# --- DataService 主类 ---
 class DataService(BaseService):
     def __init__(self, db_path: str = "data/system.db", csv_dir: str = "data/csv",
                  tag_list_file: str = "resources/tags/tagList.csv"):
@@ -50,33 +43,37 @@ class DataService(BaseService):
         self._cache: Dict[str, Any] = {}
         self._cache_lock = Lock()
 
-        # [核心] 定义数据库列名与OPC标签的映射关系
-        # 键为数据库列名(简化)，值为OPC完整标签名
+        # 1. 药剂列映射 [数据库列名 -> OPC标签名]
         self.reagent_mapping = {
-            # --- 铅快粗工序 (Rougher) ---
             'qkc_dinghuangyao1': 'YJ.yj_qkc_dinghuangyao1:actualflow',
             'qkc_dinghuangyao2': 'YJ.yj_qkc_dinghuangyao2:actualflow',
             'qkc_yiliudan1': 'YJ.yj_qkc_yiliudan1:actualflow',
             'qkc_yiliudan2': 'YJ.yj_qkc_yiliudan2:actualflow',
             'qkc_shihui': 'YJ.yj_qkc_shihui:actualflow',
             'qkc_5_you': 'YJ.yj_qkc_5#you:actualflow',
-
-            # --- 铅快精一工序 (Cleaner 1) ---
             'qkj1_dinghuangyao': 'YJ.yj_qkj1_dinghuangyao:actualflow',
             'qkj1_yiliudan': 'YJ.yj_qkj1_yiliudan:actualflow',
             'qkj1_shihui': 'YJ.yj_qkj1_shihui:actualflow',
-
-            # --- 铅快精二工序 (Cleaner 2) ---
             'qkj2_yiliudan': 'YJ.yj_qkj2_yiliudan:actualflow',
             'qkj2_shihui': 'YJ.yj_qkj2_shihui:actualflow',
             'qkj2_dinghuangyao': 'YJ.yj_qkj2_dinghuangyao:actualflow',
-
-            # --- 铅快精三工序 (Cleaner 3) ---
             'qkj3_dinghuangyao': 'YJ.yj_qkj3_dinghuangyao:actualflow',
             'qkj3_yiliudan': 'YJ.yj_qkj3_yiliudan:actualflow',
             'qkj3_ds1': 'YJ.yj_qkj3_ds1:actualflow',
             'qkj3_ds2': 'YJ.yj_qkj3_ds2:actualflow',
             'qkj3_shihui': 'YJ.yj_qkj3_shihui:actualflow'
+        }
+
+        # 2. [新增] 泡沫特征映射 [数据库列名 -> AnalysisService字典Key]
+        # 这里定义了要存入数据库的泡沫特征
+        self.froth_mapping = {
+            'froth_mean_diam': 'bubble_mean_diam',       # 平均粒径
+            'froth_bubble_count': 'bubble_count',        # 气泡数量
+            'froth_speed': 'speed_mean',                 # 平均速度
+            'froth_stability': 'stability',              # 稳定性
+            'froth_red_gray_ratio': 'color_red_gray_ratio', # 红灰比
+            'froth_gray_mean': 'color_gray_mean',        # 灰度均值
+            'froth_entropy': 'lbp_entropy'               # 纹理熵
         }
 
         self.all_csv_headers = self._load_all_headers()
@@ -102,75 +99,74 @@ class DataService(BaseService):
         return self.start()
 
     def _load_all_headers(self) -> List[str]:
-        """从CSV加载所有标签名"""
+        """加载CSV表头"""
         headers = []
         try:
-            with open(self.tag_list_file, 'r', encoding='utf-8') as file:
-                reader = csv.reader(file)
-                for row in reader:
-                    if not row: continue
-                    raw = row[0]
-                    if "source:" in raw: raw = raw.split(']')[-1]
-                    cleaned = re.sub(r'[\[\]]', '', raw).strip()
-
-                    if cleaned.startswith('yj_'):
-                        tag = f'YJ.{cleaned}'
-                    elif cleaned.startswith('kyfx_'):
-                        tag = f'KYFX.{cleaned}'
-                    else:
-                        tag = cleaned
-                    headers.append(tag)
+            if os.path.exists(self.tag_list_file):
+                with open(self.tag_list_file, 'r', encoding='utf-8') as file:
+                    reader = csv.reader(file)
+                    for row in reader:
+                        if not row: continue
+                        raw = row[0]
+                        if "source:" in raw: raw = raw.split(']')[-1]
+                        cleaned = re.sub(r'[\[\]]', '', raw).strip()
+                        if cleaned.startswith('yj_'): tag = f'YJ.{cleaned}'
+                        elif cleaned.startswith('kyfx_'): tag = f'KYFX.{cleaned}'
+                        else: tag = cleaned
+                        headers.append(tag)
         except Exception as e:
             print(f"加载标签列表失败: {e}")
         return headers
 
     def _init_database(self) -> None:
-        """初始化数据库结构 - 包含自动迁移逻辑"""
+        """初始化数据库：自动创建表和添加缺失的列"""
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.cursor()
 
-            # 1. 创建基础表结构（如果不存在）
-            # 构建药剂列 SQL
-            reagent_columns_sql = ""
-            # 字典 self.reagent_mapping 的键顺序决定了药剂列的顺序
-            for col_name in self.reagent_mapping.keys():
-                reagent_columns_sql += f",\n                             {col_name} REAL"
-            cursor.execute(f'''
-                         CREATE TABLE IF NOT EXISTS process_history
-                         (
-                             id INTEGER PRIMARY KEY AUTOINCREMENT,
-                             timestamp DATETIME NOT NULL,
-                             feed_grade REAL,
-                             conc_grade REAL,
-                             recovery REAL{reagent_columns_sql},
-                             raw_data JSON
-                         )
-                         ''')
+            # 1. 基础建表语句 (含药剂列)
+            reagent_sql = ""
+            for col in self.reagent_mapping.keys():
+                reagent_sql += f",\n                             {col} REAL"
 
-            # 2. [关键修复] 获取当前表的所有列名
+            # 注意：首次建表时不包含 froth_columns，依靠下方的 ALTER 逻辑统一添加
+            cursor.execute(f'''
+                 CREATE TABLE IF NOT EXISTS process_history
+                 (
+                     id INTEGER PRIMARY KEY AUTOINCREMENT,
+                     timestamp DATETIME NOT NULL,
+                     feed_grade REAL,
+                     conc_grade REAL,
+                     recovery REAL{reagent_sql},
+                     raw_data JSON
+                 )
+            ''')
+
+            # 2. 获取现有列名
             cursor.execute("PRAGMA table_info(process_history)")
             existing_columns = {row[1] for row in cursor.fetchall()}
 
-            # 3. 检查缺失的药剂列并动态添加 (ALTER TABLE)
-            for col_name in self.reagent_mapping.keys():
-                if col_name not in existing_columns:
-                    try:
-                        print(f"Warning: 检测到缺失列 '{col_name}'，正在自动添加...")
-                        cursor.execute(f"ALTER TABLE process_history ADD COLUMN {col_name} REAL")
-                    except Exception as e:
-                        print(f"Error: 添加列 {col_name} 失败: {e}")
+            # 3. 辅助函数：添加缺失列
+            def add_missing_columns(mapping):
+                for col_name in mapping.keys():
+                    if col_name not in existing_columns:
+                        try:
+                            cursor.execute(f"ALTER TABLE process_history ADD COLUMN {col_name} REAL")
+                            print(f"[DataService] 自动添加新列: {col_name}")
+                        except Exception as e:
+                            print(f"添加列 {col_name} 失败: {e}")
 
-            # 4. 再次确保 raw_data 存在
+            # 4. 检查并添加 药剂列 和 泡沫特征列
+            add_missing_columns(self.reagent_mapping)
+            add_missing_columns(self.froth_mapping)
+
+            # 5. 确保 raw_data 存在
             if 'raw_data' not in existing_columns:
-                try:
-                    print("Warning: 检测到缺失列 'raw_data'，正在自动添加...")
-                    cursor.execute("ALTER TABLE process_history ADD COLUMN raw_data JSON")
-                except Exception as e:
-                    print(f"Error: 添加 raw_data 列失败: {e}")
+                cursor.execute("ALTER TABLE process_history ADD COLUMN raw_data JSON")
 
             conn.commit()
 
     def record_data(self, data: Dict[str, Any]) -> None:
+        """接收并缓存数据，满足条件时写入存储"""
         try:
             timestamp = datetime.now()
             should_save = False
@@ -179,28 +175,32 @@ class DataService(BaseService):
                 self._cache.update(data)
                 self._cache['last_updated'] = timestamp
 
-            slow_interval = config_manager.get_network_config().slow_tag_interval
+            # 获取保存间隔 (默认为1秒，适应实时性)
+            try:
+                slow_interval = config_manager.get_network_config().slow_tag_interval
+                if slow_interval < 1.0: slow_interval = 1.0 # 限制最小间隔
+            except:
+                slow_interval = 1.0
 
-            # 策略1: 定时强制保存
+            # 策略1: 定时保存
             if (timestamp - self.last_periodic_save_time).total_seconds() >= slow_interval:
                 should_save = True
                 self.last_periodic_save_time = timestamp
 
-            # 策略2: 药剂值 (YJ) 发生变化
-            yj_changed = False
-            for key, val_dict in data.items():
-                if key.startswith("YJ."):
-                    val = val_dict.get('value')
-                    if self.yj_value_cache.get(key) != val:
-                        self.yj_value_cache[key] = val
-                        yj_changed = True
-
-            if yj_changed:
-                should_save = True
+            # 策略2: 药剂值变化触发
+            if not should_save:
+                for key, val_dict in data.items():
+                    if key.startswith("YJ."):
+                        val = val_dict.get('value')
+                        if self.yj_value_cache.get(key) != val:
+                            self.yj_value_cache[key] = val
+                            should_save = True
+                            break
 
             if should_save:
+                # 展平数据用于存储 (处理 {value: x} 格式)
                 flat_data = {}
-                for key, val in data.items():
+                for key, val in self._cache.items():
                     if isinstance(val, dict) and 'value' in val:
                         v = val['value']
                         flat_data[key] = float(v) if v is not None else 0.0
@@ -211,78 +211,79 @@ class DataService(BaseService):
                 self._save_to_csv(timestamp, flat_data)
 
         except Exception as e:
-            print(f"数据保存失败: {e}")
+            print(f"数据保存流程异常: {e}")
 
     def _save_to_sqlite(self, timestamp, flat_data: Dict[str, Any]):
-        """存入数据库 (展平列 + JSON)"""
+        """将缓存数据写入 SQLite"""
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.cursor()
 
-            def get_clean(key):
-                val = flat_data.get(key)
-                if val == -9999.0 or val is None:
-                    return 0.0
-                return val
+            def get_val(key, default=0.0):
+                v = flat_data.get(key)
+                if v is None or v == -9999.0: return default
+                try: return float(v)
+                except: return default
 
-            # 1. 核心指标
-            f = get_clean("KYFX.kyfx_yk_grade_Pb")
-            c = get_clean("KYFX.kyfx_gqxk_grade_Pb")
-            c_total = get_clean("KYFX.kyfx_zqxk_grade_Pb")
-            t = get_clean("KYFX.kyfx_qw_grade_Pb")
-
+            # --- 1. 核心指标 ---
+            f = get_val("KYFX.kyfx_yk_grade_Pb")
+            c = get_val("KYFX.kyfx_gqxk_grade_Pb")
+            c_total = get_val("KYFX.kyfx_zqxk_grade_Pb")
+            t = get_val("KYFX.kyfx_qw_grade_Pb")
             rec = 0.0
-            try:
-                if f is not None and c_total is not None and t is not None:
-                    if f > 0 and (c_total - t) != 0:
-                        rec = (c_total * (f - t)) / (f * (c_total - t)) * 100
-            except:
-                pass
+            if f > 0 and (c_total - t) != 0:
+                rec = (c_total * (f - t)) / (f * (c_total - t)) * 100
 
-            # 2. 准备基础数据
             columns = ['timestamp', 'feed_grade', 'conc_grade', 'recovery']
             values = [timestamp, f, c, rec]
-            placeholders = ['?', '?', '?', '?']
 
-            # 3. 动态添加药剂列数据
+            # --- 2. 药剂数据 ---
             for col_name, tag_name in self.reagent_mapping.items():
                 columns.append(col_name)
-                values.append(get_clean(tag_name))
-                placeholders.append('?')
+                values.append(get_val(tag_name))
 
-            # 4. 添加 raw_data JSON
+            # --- 3. [关键] 泡沫特征数据 ---
+            # 根据映射关系，从 flat_data 中提取 feature_extract.py 产生的 Key
+            for col_name, dict_key in self.froth_mapping.items():
+                columns.append(col_name)
+                values.append(get_val(dict_key))
+
+            # --- 4. 原始 JSON ---
             columns.append('raw_data')
-            values.append(json.dumps(flat_data))
-            placeholders.append('?')
+            values.append(json.dumps(flat_data, default=str))
 
-            # 5. 执行插入
-            sql = f'''
-                INSERT INTO process_history ({', '.join(columns)})
-                VALUES ({', '.join(placeholders)})
-            '''
+            # --- 执行插入 ---
+            placeholders = ', '.join(['?'] * len(columns))
+            sql = f'INSERT INTO process_history ({", ".join(columns)}) VALUES ({placeholders})'
 
             cursor.execute(sql, values)
             conn.commit()
 
     def _save_to_csv(self, timestamp, flat_data: Dict[str, Any]):
-        """存入 CSV (保持不变)"""
-        filename = f"{timestamp.strftime('%Y%m%d')}_process_data.csv"
-        filepath = self.csv_dir / filename
-        file_exists = filepath.exists()
+        """保存 CSV 备份"""
+        try:
+            filename = f"{timestamp.strftime('%Y%m%d')}_process_data.csv"
+            filepath = self.csv_dir / filename
+            file_exists = filepath.exists()
 
-        with open(filepath, 'a', newline='', encoding='utf-8-sig') as f:
-            writer = csv.writer(f)
-            headers = ["Timestamp"] + (self.all_csv_headers if self.all_csv_headers else list(flat_data.keys()))
-            if not file_exists:
-                writer.writerow(headers)
+            with open(filepath, 'a', newline='', encoding='utf-8-sig') as f:
+                writer = csv.writer(f)
 
-            row = [timestamp.strftime("%Y-%m-%d %H:%M:%S")]
-            for key in headers[1:]:
-                val = flat_data.get(key)
-                if val == -9999.0 or val is None:
-                    row.append("")
-                else:
+                # 确定表头: 时间 + 缓存中的所有 Key
+                current_keys = sorted([k for k in flat_data.keys() if k != 'last_updated'])
+                headers = ["Timestamp"] + current_keys
+
+                # 写表头 (如果是新文件)
+                if not file_exists:
+                    writer.writerow(headers)
+
+                # 写数据
+                row = [timestamp.strftime("%Y-%m-%d %H:%M:%S")]
+                for key in headers[1:]:
+                    val = flat_data.get(key, "")
                     row.append(val)
-            writer.writerow(row)
+                writer.writerow(row)
+        except Exception:
+            pass
 
     def get_current_data(self, key: Optional[str] = None) -> Any:
         with self._cache_lock:
@@ -290,28 +291,36 @@ class DataService(BaseService):
             return self._cache.copy()
 
     def get_historical_data(self, start_time: datetime, end_time: datetime) -> List[Dict[str, Any]]:
-        """查询历史数据 (包含所有列)"""
+        """查询历史数据，返回字典列表"""
+        if not os.path.exists(self.db_path):
+            return []
+
         with sqlite3.connect(self.db_path) as conn:
             conn.row_factory = sqlite3.Row
             cursor = conn.cursor()
 
-            # 动态构建查询字段，包含所有药剂列和 raw_data
+            # 动态构建 SELECT 语句，包含所有映射的列
             reagent_cols = ", ".join(self.reagent_mapping.keys())
+            froth_cols = ", ".join(self.froth_mapping.keys())
 
+            # 组合 SQL
             sql = f'''
-               SELECT timestamp, feed_grade, conc_grade, recovery, {reagent_cols}, raw_data
+               SELECT timestamp, feed_grade, conc_grade, recovery, 
+                      {reagent_cols}, {froth_cols}, raw_data
                FROM process_history
                WHERE timestamp BETWEEN ? AND ?
-               ORDER BY timestamp
+               ORDER BY timestamp DESC
             '''
 
-            cursor.execute(sql, (start_time, end_time))
-            return [dict(row) for row in cursor.fetchall()]
+            try:
+                cursor.execute(sql, (start_time, end_time))
+                return [dict(row) for row in cursor.fetchall()]
+            except sqlite3.OperationalError:
+                # 如果因为列不存在导致查询失败，返回空（可能正在初始化）
+                return []
 
-
+# 单例模式
 _data_service_instance = None
-
-
 def get_data_service() -> DataService:
     global _data_service_instance
     if _data_service_instance is None:
