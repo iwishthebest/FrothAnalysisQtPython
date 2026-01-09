@@ -425,13 +425,16 @@ class UIConfig:
 @dataclass
 class NetworkConfig:
     """网络配置"""
+    # [新增] OPC服务启用开关，默认为 True
+    opc_enabled: bool = True
+
     opc_server_url: str = "http://10.12.18.2:8081/open/realdata/snapshot/batchGet"
     api_endpoint: str = "http://localhost:8000/api"
     timeout: int = 30
     retry_count: int = 3
     # [新增] 快慢频更新间隔配置
-    fast_tag_interval: float = 5.0   # 快频标签更新间隔 (秒)
-    slow_tag_interval: float = 600.0 # 慢频标签更新间隔 (秒)
+    fast_tag_interval: float = 5.0  # 快频标签更新间隔 (秒)
+    slow_tag_interval: float = 600.0  # 慢频标签更新间隔 (秒)
 
     def validate(self) -> bool:
         """验证配置有效性"""

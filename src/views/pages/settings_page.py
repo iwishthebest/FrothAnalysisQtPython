@@ -350,6 +350,15 @@ class SettingsPage(QWidget):
         opc_layout = QFormLayout(opc_group)
         opc_layout.setVerticalSpacing(15)
 
+        # [新增] 启用开关
+        self.opc_enabled_check = QCheckBox("启用 OPC UA 数据采集服务")
+        self.opc_enabled_check.setStyleSheet("font-weight: bold; color: #2c3e50;")
+        # 连接信号：当状态改变时，启用/禁用下方的输入框
+        self.opc_enabled_check.toggled.connect(self.on_opc_enabled_toggled)
+
+        opc_layout.addRow(QLabel("服务开关:"), self.opc_enabled_check)
+
+        # URL 输入框
         self.opc_url_edit = QLineEdit()
         self.opc_url_edit.setPlaceholderText("http://...")
         self.opc_url_edit.setMinimumWidth(350)  # URL框宽一点
@@ -689,7 +698,13 @@ class SettingsPage(QWidget):
         self.image_quality_combo.setCurrentText(ui.image_quality)
 
         # 2. Network Config
-        net = sys_config.network
+        net = self.config_manager.system_config.network
+
+        # 先设置开关状态 (这会触发 toggled 信号，自动更新输入框的 enabled 状态)
+        self.opc_enabled_check.setChecked(net.opc_enabled)
+        # 也可以手动调用一次以确保状态正确
+        self.on_opc_enabled_toggled(net.opc_enabled)
+
         self.opc_url_edit.setText(net.opc_server_url)
         self.api_endpoint_edit.setText(net.api_endpoint)
         self.net_timeout_spin.setValue(net.timeout)
@@ -730,6 +745,17 @@ class SettingsPage(QWidget):
             self.save_current_camera_to_memory()
 
         self.load_camera_details(index)
+
+    # [新增] 处理OPC开关切换的槽函数
+    def on_opc_enabled_toggled(self, checked):
+        """当OPC启用状态改变时，控制相关输入框的可用性"""
+        self.opc_url_edit.setEnabled(checked)
+        self.api_endpoint_edit.setEnabled(checked)
+        self.net_timeout_spin.setEnabled(checked)
+        self.retry_count_spin.setEnabled(checked)
+        # 频率设置通常也依赖于OPC服务开启，根据需求也可以禁用
+        self.fast_tag_spin.setEnabled(checked)
+        self.slow_tag_spin.setEnabled(checked)
 
     def load_camera_details(self, combo_index):
         """加载指定相机的详情"""
@@ -789,6 +815,9 @@ class SettingsPage(QWidget):
 
             # 3. Network Config
             net_config = self.config_manager.get_network_config()
+            # [新增] 保存启用状态
+            net_config.opc_enabled = self.opc_enabled_check.isChecked()
+
             net_config.opc_server_url = self.opc_url_edit.text()
             net_config.api_endpoint = self.api_endpoint_edit.text()
             net_config.timeout = self.net_timeout_spin.value()
