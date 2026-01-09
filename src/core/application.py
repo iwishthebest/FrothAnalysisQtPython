@@ -33,6 +33,13 @@ class FoamMonitoringApplication:
             self._setup_background_services()
 
             self.main_window = FoamMonitoringSystem()
+
+            # [新增] 连接设置页面的信号到控制器
+            if self.main_window.settings_page and self.system_controller:
+                self.main_window.settings_page.settings_changed.connect(
+                    self.system_controller.handle_settings_changed
+                )
+
             self.event_bus.publish('application.initialized')
             return True
 
@@ -49,12 +56,10 @@ class FoamMonitoringApplication:
             if data_service.start():
                 self.logger.info("数据服务已启动 (Database/CSV)", LogCategory.DATA)
 
-            opc_worker = opc_service.get_worker()
-            if opc_worker:
-                opc_worker.data_updated.connect(data_service.record_data)
-                self.logger.info("信号连接成功: OPC Service -> Data Service", LogCategory.SYSTEM)
-            else:
-                self.logger.warning("OPC Worker 尚未初始化，无法建立数据存储连接", LogCategory.OPC)
+            # [修改] 直接连接 opc_service 的代理信号，而不是 worker
+            # 这样即使 worker 重启，连接依然有效
+            opc_service.data_updated.connect(data_service.record_data)
+            self.logger.info("信号连接成功: OPC Service -> Data Service", LogCategory.SYSTEM)
 
             self.system_controller = SystemController()
             self.logger.info("系统总控制器已启动 (Video <-> Analysis 链路已建立)", LogCategory.SYSTEM)
@@ -69,7 +74,7 @@ class FoamMonitoringApplication:
         try:
             self.main_window.showMaximized()
             self.event_bus.publish('application.started')
-            self.logger.info("主窗口已显示，进入事件循环", LogCategory.SYSTEM)  # [新增]
+            self.logger.info("主窗口已显示，进入事件循环", LogCategory.SYSTEM)
             return self.qapp.exec()
         except Exception as e:
             self.logger.critical(f"应用程序运行错误: {e}", LogCategory.SYSTEM)
@@ -81,6 +86,8 @@ class FoamMonitoringApplication:
             self.event_bus.publish('application.shutting_down')
             if self.main_window:
                 self.main_window.close()
+            # 显式清理
+            get_opc_service().cleanup()
         except Exception as e:
             self.logger.error(f"应用程序关闭错误: {e}", LogCategory.SYSTEM)
 

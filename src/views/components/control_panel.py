@@ -1,9 +1,7 @@
-import sys
-from PySide6.QtWidgets import (QWidget, QVBoxLayout, QTabWidget, QLabel,
-                               QFrame, QSizePolicy)
-from PySide6.QtCore import Signal, Qt
+from PySide6.QtWidgets import QWidget, QVBoxLayout, QTabWidget
+from PySide6.QtCore import Signal
 
-# 导入各页面组件
+# 引入各个页面组件
 from ..pages.monitoring_page import MonitoringPage
 from ..pages.control_page import ControlPage
 from ..pages.history_page import HistoryPage
@@ -11,9 +9,9 @@ from ..pages.settings_page import SettingsPage
 
 
 class ControlPanel(QWidget):
-    """右侧控制面板容器"""
+    """右侧控制面板 - 包含功能选项卡"""
 
-    # 转发 Tab 切换信号
+    # 信号：当前Tab改变 (index)
     tab_changed = Signal(int)
 
     def __init__(self, parent=None):
@@ -22,38 +20,32 @@ class ControlPanel(QWidget):
         self.setup_connections()
 
     def setup_ui(self):
-        """初始化 UI 布局"""
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(0)
 
-        # 1. 顶部标题栏 (可选，增加一点层级感)
-        self.header = QFrame()
-        self.header.setFixedHeight(40)
-        self.header.setStyleSheet("background-color: #ecf0f1; border-bottom: 1px solid #bdc3c7;")
-        header_layout = QVBoxLayout(self.header)
-        header_layout.setContentsMargins(15, 0, 0, 0)
-        header_layout.setAlignment(Qt.AlignmentFlag.AlignVCenter)
-        title_label = QLabel("SYSTEM CONTROL")
-        title_label.setStyleSheet("font-weight: bold; color: #7f8c8d; letter-spacing: 1px;")
-        header_layout.addWidget(title_label)
-        layout.addWidget(self.header)
-
-        # 2. 主要 Tab 控件
+        # 创建选项卡控件
         self.tab_widget = QTabWidget()
-        self.tab_widget.setTabPosition(QTabWidget.TabPosition.North)
+        self.tab_widget.setStyleSheet("""
+            QTabWidget::pane { border: 1px solid #dcdfe6; background: white; }
+            QTabBar::tab { height: 35px; min-width: 80px; }
+        """)
 
-        # 初始化各个页面
+        # 1. 监控总览
         self.monitoring_page = MonitoringPage()
-        self.control_page = ControlPage()
-        self.history_page = HistoryPage()
-        self.settings_page = SettingsPage()
+        self.tab_widget.addTab(self.monitoring_page, "监控总览")
 
-        # 添加页面
-        self.tab_widget.addTab(self.monitoring_page, " 实时监控 ")
-        self.tab_widget.addTab(self.control_page, " 过程控制 ")
-        self.tab_widget.addTab(self.history_page, " 历史趋势 ")
-        self.tab_widget.addTab(self.settings_page, " 系统设置 ")
+        # 2. 控制参数
+        self.control_page_tab = ControlPage()  # 为了不与MainWindow的control_page混淆，命名为tab
+        self.tab_widget.addTab(self.control_page_tab, "参数控制")
+
+        # 3. 历史数据
+        self.history_page = HistoryPage()
+        self.tab_widget.addTab(self.history_page, "历史数据")
+
+        # 4. 系统设置
+        # [关键修改] 实例化 SettingsPage 并保存为成员变量，供外部访问
+        self.settings_page = SettingsPage()
+        self.tab_widget.addTab(self.settings_page, "系统设置")
 
         layout.addWidget(self.tab_widget)
 

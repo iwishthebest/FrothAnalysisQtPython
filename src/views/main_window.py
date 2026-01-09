@@ -10,7 +10,7 @@ from src.services.logging_service import get_logging_service, LogLevel, LogCateg
 from src.services.video_service import get_video_service
 from src.services.opc_service import get_opc_service
 from src.services.data_service import get_data_service
-from config.config_system import config_manager  # [新增] 导入配置管理器以便遍历相机
+from config.config_system import config_manager
 
 
 class FoamMonitoringSystem(QMainWindow):
@@ -53,9 +53,11 @@ class FoamMonitoringSystem(QMainWindow):
         main_layout.setContentsMargins(5, 5, 5, 5)
         main_layout.setSpacing(10)
 
+        # 1. 创建左侧面板
         left_widget = self.create_left_panel()
         main_layout.addWidget(left_widget, 70)
 
+        # 2. 创建右侧面板 (ControlPanel)
         right_widget = self.create_right_panel()
         main_layout.addWidget(right_widget, 30)
 
@@ -86,25 +88,39 @@ class FoamMonitoringSystem(QMainWindow):
         self.control_panel = ControlPanel()
         return self.control_panel
 
+    # [关键修改] 添加 settings_page 属性，代理到 control_panel.settings_page
+    # 这样 application.py 中的 self.main_window.settings_page 就能正常访问了
+    @property
+    def settings_page(self):
+        """获取设置页面实例，用于信号连接"""
+        if hasattr(self, 'control_panel') and hasattr(self.control_panel, 'settings_page'):
+            return self.control_panel.settings_page
+        return None
+
     def setup_connections(self):
         """设置信号连接"""
-        self.control_panel.tab_changed.connect(self.on_tab_changed)
+        if hasattr(self, 'control_panel'):
+            self.control_panel.tab_changed.connect(self.on_tab_changed)
 
         # 1. 连接 OPC 状态 -> 状态栏
         opc_service = get_opc_service()
         opc_worker = opc_service.get_worker()
-        if opc_worker:
-            opc_worker.status_changed.connect(self.status_bar.update_opc_status)
+        # 注意: opc_worker 可能为 None (如果服务未启动)
+        # 最好连接 Service 的代理信号 (上一轮修改中已添加 status_changed 到 Service)
+        if opc_service:
+             # 如果 Service 有 status_changed 信号最好，否则尝试获取 worker
+            if hasattr(opc_service, 'status_changed'):
+                opc_service.status_changed.connect(self.status_bar.update_opc_status)
+            elif opc_worker:
+                opc_worker.status_changed.connect(self.status_bar.update_opc_status)
 
-        # 2. [新增] 连接 相机状态 -> 状态栏
+        # 2. 连接 相机状态 -> 状态栏
         video_service = get_video_service()
         camera_configs = config_manager.get_camera_configs()
 
-        # 遍历所有配置的相机
         for cam_config in camera_configs:
             worker = video_service.get_worker(cam_config.camera_index)
             if worker:
-                # 连接每个相机的状态信号到状态栏的统一处理槽
                 worker.status_changed.connect(self.status_bar.update_camera_status)
 
         self.setup_timers()
@@ -127,7 +143,7 @@ class FoamMonitoringSystem(QMainWindow):
         else:
             self.left_stack.setCurrentWidget(self.video_page)
 
-        self.logger.info(f"切换到{current_tab}界面")
+        self.logger.info(f"切换到{current_tab}界面", "UI")
 
     def update_business_data(self):
         try:
@@ -156,6 +172,7 @@ class FoamMonitoringSystem(QMainWindow):
             if hasattr(self, 'status_timer') and self.status_timer.isActive():
                 self.status_timer.stop()
 
+            # 清理服务
             get_video_service().cleanup()
             get_opc_service().cleanup()
             get_data_service().stop()

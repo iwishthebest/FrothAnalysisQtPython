@@ -26,11 +26,14 @@ class SystemController(QObject):
         # 连接信号
         self._connect_signals()
 
+        # 初始化服务状态
+        self.init_services()
+
     def init_services(self):
         """初始化并启动后台服务"""
         try:
             # 1. 启动其他核心服务 (如数据库、视频流等)
-            # self.data_service.start()
+            # self.data_service.start() # DataService 通常在 Application 中启动
             # self.video_service.start()
 
             # 2. 根据配置决定是否启动 OPC 服务
@@ -48,26 +51,21 @@ class SystemController(QObject):
         处理设置变更信号
         该方法应连接到 SettingsPage.settings_changed 信号
         """
-        self.logger.info("检测到配置变更，正在重新加载服务状态...", "SYSTEM")
+        self.logger.info("检测到配置变更，正在评估服务状态...", "SYSTEM")
 
         # 重新加载最新的网络配置
-        # 注意：config_manager 已经在 SettingsPage 中保存并更新了内存对象，
-        # 这里直接读取最新的 system_config 即可
         net_config = self.config_manager.system_config.network
 
         # === OPC 服务动态启停逻辑 ===
         if net_config.opc_enabled:
             # 如果配置启用，且服务未运行，则启动
-            if not self.opc_service.is_running():  # 假设 opc_service 有 is_running() 方法
+            if not self.opc_service.is_running():
                 self.logger.info("OPC 服务被启用，正在启动...", "SYSTEM")
                 self.opc_service.start()
             else:
-                # 如果已经在运行，可能需要更新参数（如URL或频率）并重启
-                # 这里视 OPCService 的实现而定，简单的做法是重启
+                # 如果已经在运行，重启以应用可能的 URL/频率 变更
                 self.logger.info("OPC 配置参数更新，重启服务...", "SYSTEM")
-                self.opc_service.stop()
-                self.opc_service.update_config(net_config)  # 如果支持动态更新配置
-                self.opc_service.start()
+                self.opc_service.update_config(net_config)
         else:
             # 如果配置禁用，且服务正在运行，则停止
             if self.opc_service.is_running():
@@ -97,14 +95,3 @@ class SystemController(QObject):
         # 1. 保存到数据库
         # DataService 会负责缓存并按策略写入 SQLite/CSV
         self.data_service.record_data(data)
-
-        # 2. (可选) 发送到 PLC/OPC
-        # if self.opc_service:
-        #     # 假设 OPC 标签映射逻辑已在 OpcService 中处理
-        #     self.opc_service.write_analysis_data(data)
-
-        # 3. (可选) 这里可以发射信号给 UI 更新图表
-        # self.ui_update_signal.emit(data)
-
-        # 打印调试信息 (仅在调试模式)
-        # print(f"[{data['camera_index']}] 粒径:{data.get('bubble_mean_diam',0):.2f} 速度:{data.get('speed_mean',0):.2f}")

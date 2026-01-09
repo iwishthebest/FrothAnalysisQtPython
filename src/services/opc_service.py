@@ -31,27 +31,28 @@ class OPCWorker(QObject):
         # 配置参数
         net_config = config_manager.get_network_config()
         self._timeout = net_config.timeout
-        self._normal_interval = net_config.fast_tag_interval # 正常间隔
+        self._normal_interval = net_config.fast_tag_interval  # 正常间隔
         self._slow_interval = net_config.slow_tag_interval
 
         # [新增] 错误退避机制参数
         self._current_interval = self._normal_interval
         self._error_count = 0
-        self._max_interval = 30.0 # 最大等待30秒
+        self._max_interval = 30.0  # 最大等待30秒
 
         self._last_slow_update = 0.0
-        self.session = None # 延迟初始化
+        self.session = None  # 延迟初始化
 
     def start_work(self):
         self.running = True
         self._recreate_session()
-        self.logger.info(f"OPC 采集线程已启动", LogCategory.OPC)
+        self.logger.info(f"OPC 采集线程已启动 [URL: {self.opc_url}]", LogCategory.OPC)
         self._load_tags()
         self._capture_loop()
 
     def stop_work(self):
         self.running = False
         self._close_session()
+        self.logger.info("OPC 采集线程停止指令已发送", LogCategory.OPC)
 
     def _recreate_session(self):
         """[新增] 重置 HTTP 会话"""
@@ -94,8 +95,10 @@ class OPCWorker(QObject):
 
     @staticmethod
     def _add_prefix(tag_name: str) -> str:
-        if tag_name.startswith('yj_'): return f'YJ.{tag_name}'
-        elif tag_name.startswith('kyfx_'): return f'KYFX.{tag_name}'
+        if tag_name.startswith('yj_'):
+            return f'YJ.{tag_name}'
+        elif tag_name.startswith('kyfx_'):
+            return f'KYFX.{tag_name}'
         return tag_name
 
     def _capture_loop(self):
@@ -160,7 +163,6 @@ class OPCWorker(QObject):
                 if not self.running: break
                 QThread.msleep(100)
 
-
     def _fetch_process_data(self, tags: List[str]) -> Dict[str, Any]:
         if not tags or not self.session: return {}
         try:
@@ -205,6 +207,14 @@ class OPCWorker(QObject):
 
 
 class OPCService(QObject):
+    """
+    OPC 服务管理类
+    负责 Worker 线程的生命周期管理，并作为信号的中转站
+    """
+    # [新增] 代理信号，用于屏蔽 Worker 重启对外部的影响
+    data_updated = Signal(dict)
+    status_changed = Signal(bool, str)
+
     def __init__(self, opc_url: str = None, tag_list_file: str = "resources/tags/tagList.csv"):
         super().__init__()
         # 优先从配置读取
@@ -214,30 +224,72 @@ class OPCService(QObject):
         self.logger = get_logging_service()
         self.opc_url = opc_url
         self.tag_list_file = tag_list_file
+
+        # 初始化时不启动，等待 SystemController 调用 start()
         self.thread: Optional[QThread] = None
         self.worker: Optional[OPCWorker] = None
-        self._init_worker()
 
-    def _init_worker(self):
+    def start(self):
+        """启动 OPC 采集服务"""
+        if self.is_running():
+            self.logger.warning("OPC 服务已在运行中", LogCategory.OPC)
+            return
+
+        # 每次启动前更新配置 (URL可能已变更)
+        net_config = config_manager.get_network_config()
+        self.opc_url = net_config.opc_server_url
+
         self.thread = QThread()
         self.worker = OPCWorker(self.opc_url, self.tag_list_file)
         self.worker.moveToThread(self.thread)
+
+        # 连接 Worker 信号到 Service 代理信号
+        self.worker.data_updated.connect(self.data_updated)
+        self.worker.status_changed.connect(self.status_changed)
+
         self.thread.started.connect(self.worker.start_work)
         self.thread.finished.connect(self.thread.deleteLater)
         self.thread.start()
 
-    def get_worker(self) -> OPCWorker:
-        return self.worker
+        self.logger.info("OPC 服务正在启动...", LogCategory.OPC)
 
-    def cleanup(self):
-        if self.worker: self.worker.stop_work()
+    def stop(self):
+        """停止 OPC 采集服务"""
+        if self.worker:
+            self.worker.stop_work()
+
         if self.thread:
             self.thread.quit()
-            self.thread.wait(1000)
-        self.logger.info("OPC服务已停止", LogCategory.OPC)
+            self.thread.wait(2000)  # 等待线程退出
+
+        self.worker = None
+        self.thread = None
+        self.logger.info("OPC 服务已停止", LogCategory.OPC)
+
+    def is_running(self) -> bool:
+        """检查服务是否运行"""
+        return self.thread is not None and self.thread.isRunning()
+
+    def get_worker(self) -> Optional[OPCWorker]:
+        """获取 Worker 实例 (仅供调试，信号请直接连接 Service)"""
+        return self.worker
+
+    def update_config(self, new_config):
+        """更新配置并重启服务"""
+        was_running = self.is_running()
+        if was_running:
+            self.stop()
+
+        # 参数将在 start() 时重新从 config_manager 读取
+        if was_running:
+            self.start()
+
+    def cleanup(self):
+        self.stop()
 
 
 _opc_service_instance = None
+
 
 def get_opc_service() -> OPCService:
     global _opc_service_instance
